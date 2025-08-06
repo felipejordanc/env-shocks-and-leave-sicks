@@ -31,7 +31,14 @@ if "`c(username)'" == "black"{
 ************************************************
 foreach y in 2018 2019 2020 2022 2023 2024{
 	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1)
-	keep benef_enciptado
+	if `y' <= 2020{
+		keep benef_enciptado
+	}
+	else{
+		keep código_beneficiario
+		rename código_beneficiario benef_enciptado
+	}
+	destring benef_enciptado, replace
 	tempfile b_`y'
 	save `b_`y''
 }
@@ -39,8 +46,8 @@ use `b_2018'
 foreach y in 2019 2020 2022 2023 2024{
 	append using `b_`y''
 }
-
-
+duplicates drop benef_enciptado, force
+save "$usedata/benef_sample.dta"
 
 ************************************************
 *         2. Sick leave data cleaning          *
