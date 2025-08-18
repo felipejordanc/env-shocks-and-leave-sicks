@@ -114,7 +114,13 @@ replace desc_tipo_asegurado = "Trabajador Independiente" if desc_tipo_asegurado 
 save "$usedata/Population.dta", replace
 
 ************************************************
-*         3. Sick leave data cleaning          *
+*         3. Employer data cleaning          *
+************************************************
+
+
+
+************************************************
+*         4. Sick leave data cleaning          *
 ************************************************
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
 preserve
@@ -147,19 +153,12 @@ sort benef_enciptado date
 gen leave = 0
 gen year = year(date)
 merge 1:1 benef_enciptado date using "$usedata/Sick.dta", nogenerate keep (1 3)
-
-gen start_date = date
-gen end_date   = date + dias_otorgados
-
-* Step 3: Expand a flag to all dates in the sick-leave period
-* This will create a variable that is 1 on the start and following days
-rangestat (count) leave_flag = dias_otorgados, ///
-    interval(date 0 dias_otorgados) by(benef_enciptado)
-
-* Step 4: Replace leave = -98 only for follow-up days (not the first day)
-replace leave = -98 if leave_flag & leave != 1
-
-
+gen enddate = .
+replace enddate = date + dias_otorgados - 1 if dias_otorgados < .
+bysort benef_enciptado (date): replace enddate = enddate[_n-1] if enddate[_n-1] > date[_n-1] & enddate[_n-1] != . & enddate == .
+replace leave = -98 if enddate != . & leave != 1
+drop enddate
+use "$usedata/Main.dta", clear
 
 * Año-mes en formato monthly (%tm)
 *gen ym = mofd(datevar)
