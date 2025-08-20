@@ -116,9 +116,27 @@ save "$usedata/Population.dta", replace
 ************************************************
 *         3. Employer data cleaning          *
 ************************************************
-
-
-
+local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
+local files : dir "`mydir'" files "*.txt"
+local i = 1
+foreach f of local files {
+	import delimited "`mydir'\`f'", varnames(1) clear
+	rename codigo_cotizante benef_enciptado
+	merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
+	tostring periodo_renta, replace
+	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
+	gen date = monthly(periodo_renta, "YM")
+	format date %tm
+	drop actividad_economica periodo_renta
+	tempfile e_`i'
+	save `e_`i''
+	local ++i
+}
+use `e_1'
+forvalues y = 2/1000{
+	append using `e_`y''
+}
+save "$usedata/Employer.dta", replace
 ************************************************
 *         4. Sick leave data cleaning          *
 ************************************************
@@ -134,6 +152,10 @@ gen date = daily(fecha_emision, "DMY")
 format date %td
 keep desc_tipo_formulario benef_enciptado date dias_otorgados rut_prof_encriptado cod_tipo_licencia coddersubsidio codautorizacion lic_cod_previsional
 save "$usedata/Sick.dta", replace
+
+************************************************
+*         5. Main data cleaning          *
+************************************************
 
 clear all
 set obs 1
