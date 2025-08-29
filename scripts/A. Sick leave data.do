@@ -42,17 +42,26 @@ foreach y in 2018 2019 2020 2022 2023 2024{
 	tempfile b_`y'
 	save `b_`y''
 }
+import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
+keep id_asegurado comuna
+rename id_asegurado benef_enciptado
+gen year = 2021
+tempfile b_2021
+save `b_2021'
+
 use `b_2018'
-foreach y in 2019 2020 2022 2023 2024{
+foreach y in 2019 2020 2021 2022 2023 2024{
 	append using `b_`y''
 }
-merge n:1 comuna_beneficiario using "C:\Users\black\Dropbox\GSL\Bases intermedias\codigo_comunas.dta", update nogenerate
-drop comuna_beneficiario
+merge n:1 comuna_beneficiario using "C:\Users\black\Dropbox\GSL\Bases intermedias\codigo_comunas.dta", update nogenerate keepusing(cod_comuna_pernat)
+merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogenerate
+replace cod_comuna_pernat = 0 if cod_comuna_pernat == .
+drop comuna_beneficiario comuna
 rename cod_comuna_pernat cod_com
 reshape wide cod_com, i(benef_enciptado) j(year)
 save "$usedata/benef_sample.dta", replace // This one has to be deleted when making the replication file, it is just a checkpoint
 
-gen all_years = cod_com2018 == cod_com2019 & cod_com2018 == cod_com2020 & cod_com2018 == cod_com2022 & cod_com2018 == cod_com2023 & cod_com2018 == cod_com2024
+gen all_years = cod_com2018 == cod_com2019 & cod_com2018 == cod_com2020 & cod_com2018 == cod_com2021 & cod_com2018 == cod_com2022 & cod_com2018 == cod_com2023 & cod_com2018 == cod_com2024
 set seed 12345 
 sample 1
 keep benef_enciptado
@@ -89,8 +98,15 @@ foreach y in 2022 2023 2024{
 	tempfile b_`y'
 	save `b_`y''
 }
+import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
+keep id_asegurado comuna
+rename id_asegurado benef_enciptado
+gen year = 2021
+tempfile b_2021
+save `b_2021'
+
 use `b_2018'
-foreach y in 2019 2020 2022 2023 2024{
+foreach y in 2019 2020 2021 2022 2023 2024{
 	append using `b_`y''
 }
 order benef_enciptado year
@@ -141,16 +157,18 @@ save "$usedata/Employer.dta", replace
 *         4. Sick leave data cleaning          *
 ************************************************
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
-preserve
-gen suma = 1
-collapse (sum) suma, by(rut_prof_encriptado)
-save "$usedata/Doctors.dta", replace
-restore
-rename encripbi_rut_traba benef_enciptado
-merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
 gen date = daily(fecha_emision, "DMY")
 format date %td
-keep desc_tipo_formulario benef_enciptado date dias_otorgados rut_prof_encriptado cod_tipo_licencia coddersubsidio codautorizacion lic_cod_previsional
+gen year = year(date)
+bysort rut_prof_encriptado year: gen obs_id_year = _N
+bysort year: egen cutoff = pctile(obs_id_year), p(99)
+gen top1pct = obs_id_year >= cutoff
+drop if top1pct == 1
+rename encripbi_rut_traba benef_enciptado
+merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
+
+keep benef_enciptado date dias_otorgados cod_tipo_licencia 
+duplicates drop benef_enciptado date, force
 save "$usedata/Sick.dta", replace
 
 ************************************************
@@ -173,22 +191,43 @@ use "$usedata/benef_sample1.dta", clear
 cross using `dates'
 sort benef_enciptado date
 gen leave = 0
-gen year = year(date)
+
 merge 1:1 benef_enciptado date using "$usedata/Sick.dta", nogenerate keep (1 3)
 gen enddate = .
 replace enddate = date + dias_otorgados - 1 if dias_otorgados < .
 bysort benef_enciptado (date): replace enddate = enddate[_n-1] if enddate[_n-1] > date[_n-1] & enddate[_n-1] != . & enddate == .
 replace leave = -98 if enddate != . & leave != 1
-drop enddate
+drop enddate dias_otorgados
+*gen year = year(date)
+gen ym = mofd(date)
+format ym %tm
+save "$usedata/Main.dta", replace
 use "$usedata/Main.dta", clear
 
-* Año-mes en formato monthly (%tm)
-*gen ym = mofd(datevar)
-*format ym %tm
-save "$usedata/Main.dta", replace
-
-
-
+************************************************
+*         3. Employer data cleaning          *
+************************************************
+local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
+local files : dir "`mydir'" files "*.txt"
+local i = 1
+foreach f of local files {
+	import delimited "`mydir'\`f'", varnames(1) clear
+	rename codigo_cotizante benef_enciptado
+	merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
+	tostring periodo_renta, replace
+	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
+	gen ym = monthly(periodo_renta, "YM")
+	format ym %tm
+	drop actividad_economica periodo_renta
+	tempfile e_`i'
+	save `e_`i''
+	local ++i
+}
+use `e_1'
+forvalues y = 2/1000{
+	append using `e_`y''
+}
+save "$usedata/Employer.dta", replace
 
 
 
