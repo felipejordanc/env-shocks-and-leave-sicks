@@ -143,7 +143,7 @@ foreach f of local files {
 	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
 	gen date = monthly(periodo_renta, "YM")
 	format date %tm
-	drop actividad_economica periodo_renta
+	drop periodo_renta
 	tempfile e_`i'
 	save `e_`i''
 	local ++i
@@ -153,11 +153,17 @@ forvalues y = 2/1000{
 	append using `e_`y''
 }
 save "$usedata/Employer.dta", replace
+bysort benef_enciptado ym: gen n = _n
+collapse(sum) monto_renta_imponible_pesos (max) n, by(benef_enciptado ym)
+*Falta mantener moda de empleador
+save "$usedata/Employer.dta", replace
 ************************************************
 *         4. Sick leave data cleaning          *
 ************************************************
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
-gen date = daily(fecha_emision, "DMY")
+gen date2 = daily(fecha_emision, "DMY")
+format date2 %td
+gen date = daily(fecha_desde, "DMY")
 format date %td
 gen year = year(date)
 bysort rut_prof_encriptado year: gen obs_id_year = _N
@@ -165,10 +171,12 @@ bysort year: egen cutoff = pctile(obs_id_year), p(99)
 gen top1pct = obs_id_year >= cutoff
 drop if top1pct == 1
 rename encripbi_rut_traba benef_enciptado
+gen delta = abs(date - date2)
+keep if delta <= 7
+duplicates drop benef_enciptado date, force
 merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
 
 keep benef_enciptado date dias_otorgados cod_tipo_licencia 
-duplicates drop benef_enciptado date, force
 save "$usedata/Sick.dta", replace
 
 ************************************************
