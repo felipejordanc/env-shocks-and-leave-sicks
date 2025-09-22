@@ -1,0 +1,114 @@
+import excel "C:\Users\black\Documents\SINCA\stations_info_clean.xlsx", firstrow clear
+drop if Estación == ""
+gen date_inicio = daily(Fechaprimerregistro, "DMY")
+format date_inicio %td
+gen date_fin = daily(Fechaúltimoregistro, "DMY")
+format date_fin %td
+replace date_fin = 24053 if date_fin == .
+drop Fechaprimerregistro Fechaúltimoregistro Comuna Técnicademedición Provincia Región 
+keep if Parámetro == "Material particulado MP 10" | Parámetro == "Material particulado MP 2,5" | Parámetro == "Ozono.-" | Parámetro == "Óxidos de nitrógeno"
+gen Unidad = "μg/m3"
+replace Unidad = "ppb" if Parámetro == "Óxidos de nitrógeno" | Parámetro == "Ozono.-"
+replace Estación = "Cerro Merquin" if Estación == "Cerro Merquín"
+replace Estación = "Concon MMA" if Estación == "Concón MMA"
+replace Estación = "Curico" if Estación == "Curicó"
+replace Estación = "El Bosque Acreditada" if Estación == "El Bosque (Acreditada)"
+replace Estación = "INIA Chillan" if Estación == "INIA, Chillán"
+replace Estación = "La Florida Acreditada" if Estación == "La Florida (Acreditada)"
+replace Estación = "Las Condes Acreditada" if Estación == "Las Condes (Acreditada)"
+replace Estación = "Los Angeles Oriente" if Estación == "Los Ángeles Oriente"
+replace Estación = "Parque OHiggins" if Estación == "Parque O'Higgins"
+replace Estación = "Pudahuel Acreditada" if Estación == "Pudahuel (Acreditada)"
+replace Estación = "UC Maule" if Estación == "U.C. Maule"
+replace Estación = "Vina del Mar" if Estación == "Viña del Mar"
+replace Estación = "Nielol" if Estación == "Ñielol"
+
+export excel "C:\Users\black\Documents\SINCA\stations_info_stata.xlsx", firstrow(variables) replace
+
+*****************************************
+
+
+
+import delimited "C:\Users\black\Documents\SINCA2\Data_Pollution_cleaned.csv", clear varnames(1)
+duplicates drop centro, force
+keep centro
+rename centro Estación
+export delimited "C:\Users\black\Documents\SINCA2\centros.csv", replace
+save "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.dta", replace
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
+drop if Estación == "."
+merge n:1 Estación using "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.dta"
+
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
+duplicates drop Entidad shp, force
+gen cent = 1
+replace cent = 0 if Estación == "."
+destring Pers, replace
+collapse (sum) Pers (mean) cent, by (cod_comuna)
+replace cent = 1 if cent > 0
+collapse (sum) Pers ,by (cent)
+
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros3.xlsx", clear firstrow
+duplicates drop Entidad shp, force
+gen cent = 1
+replace cent = 0 if Estación == "."
+destring Pers, replace
+collapse (sum) Pers (mean) cent, by (cod_comuna)
+replace cent = 1 if cent > 0
+collapse (sum) Pers ,by (cent)
+*****************************************
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
+qui: tostring Entidad, replace
+qui: tostring shp, replace
+
+qui: gen id = Entidad + "-" + shp
+qui: bysort id: gen n = _n
+qui: replace n = 0  if Estación == "."
+qui: bysort id: egen max = max(n)
+qui: duplicates drop id, force
+tab max
+gen suma = 1 if n >= 1
+replace suma = 0 if suma == .
+gen ent = 1
+collapse (mean) suma (sum) max ent, by(cod_comuna)
+replace suma = 1 if suma >0
+tab suma
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros2.xlsx", clear firstrow
+qui: tostring Entidad, replace
+qui: tostring shp, replace
+
+qui: gen id = Entidad + "-" + shp
+qui: bysort id: gen n = _n
+qui: replace n = 0  if Estación == "."
+qui: bysort id: egen max = max(n)
+qui: duplicates drop id, force
+tab max
+gen suma = 1 if n >= 1
+replace suma = 0 if suma == .
+gen ent = 1
+collapse (mean) suma (sum) max ent, by(cod_comuna)
+replace suma = 1 if suma >0
+tab suma
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros3.xlsx", clear firstrow
+qui: tostring Entidad, replace
+qui: tostring shp, replace
+
+qui: gen id = Entidad + "-" + shp
+qui: bysort id: gen n = _n
+qui: replace n = 0  if Estación == "."
+qui: bysort id: egen max = max(n)
+qui: duplicates drop id, force
+tab max
+gen suma = 1 if n >= 1
+replace suma = 0 if suma == .
+gen ent = 1
+collapse (mean) suma (sum) max ent, by(cod_comuna)
+replace suma = 1 if suma >0
+tab suma
+
+import delimited "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.csv", clear varnames(1)
+bysort centro medida: egen missing_x = total(missing(registrosvalidados))
+keep if medida == "Material_particulado_MP_10" | medida == "Material_particulado_MP_25" |medida == "Ozono-" | medida == "xidos_de_nitrgeno" 
+egen sum = rowtotal(registrosvalidados registrospreliminares registrosnovalidados)
+bysort centro medida: egen missing_x2 = total(missing(sum))
