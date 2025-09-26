@@ -32,19 +32,23 @@ if "`c(username)'" == "black"{
 foreach y in 2018 2019 2020 2022 2023 2024{
 	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1)
 	if `y' <= 2020{
-		keep benef_enciptado cod_comuna_pernat
+		keep benef_enciptado cod_comuna_pernat edad_tramo tramo
 	}
 	else{
-		keep código_beneficiario comuna_beneficiario
+		keep código_beneficiario comuna_beneficiario edad_tramo tramo_fonasa
 		rename código_beneficiario benef_enciptado
+		rename tramo_fonasa tramo
 	}
 	gen year = `y'
 	tempfile b_`y'
 	save `b_`y''
 }
 import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
-keep id_asegurado comuna
+keep id_asegurado comuna edad grupo
 rename id_asegurado benef_enciptado
+rename edad edad_tramo
+rename grupo tramo
+tostring edad_tramo, replace
 gen year = 2021
 tempfile b_2021
 save `b_2021'
@@ -58,12 +62,14 @@ merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogen
 replace cod_comuna_pernat = 0 if cod_comuna_pernat == .
 drop comuna_beneficiario comuna
 rename cod_comuna_pernat cod_com
-reshape wide cod_com, i(benef_enciptado) j(year)
+reshape wide cod_com edad_tramo tramo, i(benef_enciptado) j(year)
 save "$usedata/benef_sample.dta", replace // This one has to be deleted when making the replication file, it is just a checkpoint
-
+use "$usedata/benef_sample.dta", clear
+gen match = 1 if tramo2018 != "A" | tramo2019 != "A" | tramo2020 != "A" | tramo2021 != "A" | tramo2022 != "A" | tramo2023 != "A" | tramo2024 != "A" 
+keep
 gen all_years = cod_com2018 == cod_com2019 & cod_com2018 == cod_com2020 & cod_com2018 == cod_com2021 & cod_com2018 == cod_com2022 & cod_com2018 == cod_com2023 & cod_com2018 == cod_com2024
-set seed 12345 
-sample 1
+set seed 12345
+sample 2
 keep benef_enciptado
 save "$usedata/benef_sample1.dta", replace
 
@@ -99,9 +105,18 @@ foreach y in 2022 2023 2024{
 	save `b_`y''
 }
 import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
-keep id_asegurado comuna
 rename id_asegurado benef_enciptado
+merge 1:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
+merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogenerate keep(3)
+rename grupo tramo
+rename tipo_trabajador desc_tipo_asegurado
+rename tramo_ingreso tramo_renta
+gen sex = sexo == "HOMBRE"
+gen carga = titular_carga == "CARGA"
 gen year = 2021
+rename edad edad_tramo
+tostring edad_tramo, replace
+drop año fec fecha_nacimiento sexo titular_carga id_titular comuna mto_cotiz_mes comuna_beneficiario
 tempfile b_2021
 save `b_2021'
 
@@ -153,30 +168,32 @@ forvalues y = 2/1000{
 	append using `e_`y''
 }
 save "$usedata/Employer.dta", replace
-bysort benef_enciptado ym: gen n = _n
-collapse(sum) monto_renta_imponible_pesos (max) n, by(benef_enciptado ym)
-*Falta mantener moda de empleador
+bysort benef_enciptado date: gen n = _n
+gen year = year(dofm(date))
+bysort benef_enciptado year: egen mode_emp = mode(codigo_empleador)
+bysort benef_enciptado date: gen match = codigo_empleador == mode_emp
+sort benef_enciptado date match monto_renta_imponible_pesos
+collapse(sum) monto_renta_imponible_pesos (max) n (lastnm) codigo_empleador actividad_economica, by(benef_enciptado date)
 save "$usedata/Employer.dta", replace
 ************************************************
 *         4. Sick leave data cleaning          *
 ************************************************
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
-gen date2 = daily(fecha_emision, "DMY")
-format date2 %td
-gen date = daily(fecha_desde, "DMY")
+gen date = daily(fecha_emision, "DMY")
 format date %td
+gen date2 = daily(fecha_desde, "DMY")
+format date2 %td
 gen year = year(date)
 bysort rut_prof_encriptado year: gen obs_id_year = _N
 bysort year: egen cutoff = pctile(obs_id_year), p(99)
 gen top1pct = obs_id_year >= cutoff
-drop if top1pct == 1
 rename encripbi_rut_traba benef_enciptado
-gen delta = abs(date - date2)
-keep if delta <= 7
-duplicates drop benef_enciptado date, force
+gen delta = date - date2
+keep if delta <= 7 & delta >= -7
+duplicates drop benef_enciptado date, force // Cambiar a keep max
 merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
 
-keep benef_enciptado date dias_otorgados cod_tipo_licencia 
+keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta
 save "$usedata/Sick.dta", replace
 
 ************************************************
@@ -212,30 +229,6 @@ format ym %tm
 save "$usedata/Main.dta", replace
 use "$usedata/Main.dta", clear
 
-************************************************
-*         3. Employer data cleaning          *
-************************************************
-local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
-local files : dir "`mydir'" files "*.txt"
-local i = 1
-foreach f of local files {
-	import delimited "`mydir'\`f'", varnames(1) clear
-	rename codigo_cotizante benef_enciptado
-	merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
-	tostring periodo_renta, replace
-	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
-	gen ym = monthly(periodo_renta, "YM")
-	format ym %tm
-	drop actividad_economica periodo_renta
-	tempfile e_`i'
-	save `e_`i''
-	local ++i
-}
-use `e_1'
-forvalues y = 2/1000{
-	append using `e_`y''
-}
-save "$usedata/Employer.dta", replace
 
 
 
