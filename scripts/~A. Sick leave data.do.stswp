@@ -29,48 +29,33 @@ if "`c(username)'" == "black"{
 ************************************************
 *       1. Random sample                       *
 ************************************************
-foreach y in 2018 2019 2020 2022 2023 2024{
-	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1)
-	if `y' <= 2020{
-		keep benef_enciptado cod_comuna_pernat edad_tramo tramo
-	}
-	else{
-		keep código_beneficiario comuna_beneficiario edad_tramo tramo_fonasa
-		rename código_beneficiario benef_enciptado
-		rename tramo_fonasa tramo
-	}
-	gen year = `y'
-	tempfile b_`y'
-	save `b_`y''
+local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
+local files : dir "`mydir'" files "*.txt"
+local i = 1
+foreach f of local files {
+	import delimited "`mydir'\`f'", varnames(1) clear
+	rename codigo_cotizante benef_enciptado
+	tostring periodo_renta, replace
+	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
+	gen date = monthly(periodo_renta, "YM")
+	format date %tm
+	drop if date < tm(2018m1)
+	drop periodo_renta
+	duplicates drop benef_enciptado, force
+	keep benef_enciptado
+	tempfile e_`i'
+	save `e_`i''
+	local ++i
 }
-import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
-keep id_asegurado comuna edad grupo
-rename id_asegurado benef_enciptado
-rename edad edad_tramo
-rename grupo tramo
-tostring edad_tramo, replace
-gen year = 2021
-tempfile b_2021
-save `b_2021'
+use `e_1'
+forvalues y = 2/1000{
+	append using `e_`y''
+}
+duplicates drop benef_enciptado, force
 
-use `b_2018'
-foreach y in 2019 2020 2021 2022 2023 2024{
-	append using `b_`y''
-}
-merge n:1 comuna_beneficiario using "C:\Users\black\Dropbox\GSL\Bases intermedias\codigo_comunas.dta", update nogenerate keepusing(cod_comuna_pernat)
-merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogenerate
-replace cod_comuna_pernat = 0 if cod_comuna_pernat == .
-drop comuna_beneficiario comuna
-rename cod_comuna_pernat cod_com
-reshape wide cod_com edad_tramo tramo, i(benef_enciptado) j(year)
 save "$usedata/benef_sample.dta", replace // This one has to be deleted when making the replication file, it is just a checkpoint
-use "$usedata/benef_sample.dta", clear
-gen match = 1 if tramo2018 != "A" | tramo2019 != "A" | tramo2020 != "A" | tramo2021 != "A" | tramo2022 != "A" | tramo2023 != "A" | tramo2024 != "A" 
-keep
-gen all_years = cod_com2018 == cod_com2019 & cod_com2018 == cod_com2020 & cod_com2018 == cod_com2021 & cod_com2018 == cod_com2022 & cod_com2018 == cod_com2023 & cod_com2018 == cod_com2024
 set seed 12345
-sample 2
-keep benef_enciptado
+sample 1
 save "$usedata/benef_sample1.dta", replace
 
 ************************************************
@@ -124,8 +109,6 @@ use `b_2018'
 foreach y in 2019 2020 2021 2022 2023 2024{
 	append using `b_`y''
 }
-order benef_enciptado year
-sort benef_enciptado year
 replace edad_tramo = "0 a 9 años" if edad_tramo == "00 a 02 años" | edad_tramo == "00 a 4 años" | edad_tramo == "03 a 04 años" | edad_tramo == "05 a 09 años" 
 replace edad_tramo = "10 a 19 años" if edad_tramo == "10 a 14 años" | edad_tramo == "15 a 19 años" 
 replace edad_tramo = "20 a 29 años" if edad_tramo == "20 a 24 años" | edad_tramo == "25 a 29 años"
@@ -158,6 +141,7 @@ foreach f of local files {
 	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
 	gen date = monthly(periodo_renta, "YM")
 	format date %tm
+	drop if date < tm(2018m1)
 	drop periodo_renta
 	tempfile e_`i'
 	save `e_`i''
@@ -174,7 +158,6 @@ bysort benef_enciptado year: egen mode_emp = mode(codigo_empleador)
 bysort benef_enciptado date: gen match = codigo_empleador == mode_emp
 sort benef_enciptado date match monto_renta_imponible_pesos
 collapse(sum) monto_renta_imponible_pesos (max) n (lastnm) codigo_empleador actividad_economica, by(benef_enciptado date)
-drop if date < tm(2018m1)
 save "$usedata/Employer.dta", replace
 ************************************************
 *         4. Sick leave data cleaning          *
