@@ -35,8 +35,68 @@ bysort benef_enciptado: replace foreign = foreign[_n-1] if year == 2021
 bysort benef_enciptado: egen max = max(_n)
 gen id_all = max == 7
 bysort benef_enciptado: gen n = _n
+preserve 
+foreach n in 0 1{
+	gen sex_`n' = sex if id_all == `n'
+	gen foreign_`n' = foreign if id_all == `n'
+}
+graph bar (mean) sex_0 sex_1, asyvars bargap(10) blabel(bar, format(%9.2f)) ytitle("Percent") legend(label(1 "Males - id_all = 0") label(2 "Males - id_all = 1")) ylabel(0(0.2)1)
+graph export "$graphs/Gender.png", replace
+graph bar (mean) foreign_0 foreign_1, asyvars bargap(10) blabel(bar, format(%9.2f)) ytitle("Percent") legend(label(1 "Foreign - id_all = 0") label(2 "Foreign - id_all = 1") ) ylabel(0(0.2)1)
+graph export "$graphs/Foreign.png", replace
+restore
+preserve 
+encode tramo, gen(tram)
+bysort benef_enciptado: egen maxtra = max(tram)
+contract maxtra id_all, nomiss
+bys id_all (maxtra) : replace _freq = sum(_freq)
+bys id_all (maxtra) : replace _freq = _freq/_freq[_N]*100
 
+twoway bar _freq id_all if maxtra == 4 , barw(.5) || ///
+       bar _freq id_all if maxtra == 3 , barw(.5) || ///
+       bar _freq id_all if maxtra == 2 , barw(.5) || ///
+       bar _freq id_all if maxtra == 1 , barw(.5)    ///
+       legend(order(1 "D"                    ///
+                    2 "C"                         ///
+                    3 "B"                      ///
+                    4 "A"))                       ///
+       ytitle("Percent")    xtitle("Sample")                           ///
+       xlab(0/1, val)
+	   graph export "$graphs/Tramo.png", replace
+restore
+distinct cod_comuna_pernat if id_all == 1
+distinct cod_comuna_pernat if id_all == 0
 
+preserve
+replace tramo_renta = subinstr(tramo_renta, " a ", "-", .)
+replace tramo_renta = subinstr(tramo_renta, " de ", "-", .)
+* 2. Quitar puntos de miles
+replace tramo_renta = subinstr(tramo_renta, ".", "", .)
+
+* 3. Separar en dos variables: lower y upper
+split tramo_renta, parse("-") destring
+
+rename tramo_renta1 lower
+rename tramo_renta2 upper
+destring lower, replace force
+* 4. Calcular la mediana
+gen median = round((lower + upper)/2)
+replace median = upper if lower == . & upper != .
+foreach n in 0 1{
+	bysort benef_enciptado: egen maxmedian_`n' = max(median) if id_all == `n'
+	bysort benef_enciptado: egen maxdensidad_`n' = max(densidad) if id_all == `n'
+	gen median_`n' = median if id_all == `n'
+	gen densidad_`n' = densidad if id_all == `n'
+}
+estpost summarize maxmedian_0 maxmedian_1 maxdensidad_0 maxdensidad_1 if n == 1, d
+esttab using "$graphs/med-den.tex", ///
+    cells("mean(fmt(2)) sd(fmt(2)) p25 p50 p75") ///
+    nonumber nomtitle label replace booktabs noobs
+graph bar (mean) median_0 median_1, over(year) asyvars bargap(10) ytitle("Mean income") legend(label(1 "Income - id_all = 0") label(2 "Income - id_all = 1"))
+graph export "$graphs/Income.png", replace
+graph bar (mean) densidad_0 densidad_1 if year < 2022, over(year) asyvars bargap(10) ytitle("Mean months") legend(label(1 "Months worked - id_all = 0") label(2 "Months worked - id_all = 1"))
+graph export "$graphs/Months.png", replace
+restore
 ************************************************
 *       2. Employer                *
 ************************************************
@@ -48,7 +108,7 @@ preserve
 duplicates drop benef_enciptado year, force
 graph bar (mean) nmon, over(year) ytitle("% of workers with full employment") ///
     blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(off)
-	graph export "$graphs/fullyear_emp.png"
+	graph export "$graphs/fullyear_emp.png", replace
 restore
 gen month = month(dofm(date))
 bysort benef_enciptado year: egen minx1 = min(monto_renta_imponible_pesos) if month <= 6
