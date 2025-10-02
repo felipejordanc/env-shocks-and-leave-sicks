@@ -30,10 +30,12 @@ if "`c(username)'" == "black"{
 *       1. Population                  *
 ************************************************
 use "$usedata/Population.dta", clear
+sort benef_enciptado year
 bysort benef_enciptado: replace foreign = foreign[_n-1] if year == 2021
-keep if year == 2021
-tab sex
-tab foreign
+bysort benef_enciptado: egen max = max(_n)
+gen id_all = max == 7
+bysort benef_enciptado: gen n = _n
+
 
 ************************************************
 *       2. Employer                *
@@ -63,7 +65,16 @@ use "$usedata/Sick.dta", clear
 
 
 
+************************************************
+*       4. Pollution                  *
+************************************************
+use "$usedata/pollution.dta", clear
 
+
+************************************************
+*       5. Climate               *
+************************************************
+use "$usedata/climate_pr.dta", clear
 
 
 
