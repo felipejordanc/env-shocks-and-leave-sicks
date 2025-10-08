@@ -177,7 +177,7 @@ keep if delta <= 7 & delta >= -7
 duplicates drop benef_enciptado date, force // Cambiar a keep max
 merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
 
-keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta
+keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta lic_cod_previsional res_categoria_cie10
 save "$usedata/Sick.dta", replace
 
 ************************************************

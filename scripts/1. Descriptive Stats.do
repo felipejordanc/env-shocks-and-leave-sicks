@@ -34,6 +34,11 @@ sort benef_enciptado year
 bysort benef_enciptado: replace foreign = foreign[_n-1] if year == 2021
 bysort benef_enciptado: egen max = max(_n)
 gen id_all = max == 7
+preserve 
+keep benef_enciptado id_all
+duplicates drop benef_enciptado, force
+save "$usedata/sample_id.dta", replace
+restore
 bysort benef_enciptado: gen n = _n
 preserve 
 foreach n in 0 1{
@@ -102,35 +107,150 @@ restore
 ************************************************
 use "$usedata/Employer.dta", clear
 gen year = year(dofm(date))
+merge n:1 benef_enciptado using "$usedata/sample_id.dta", nogenerate keep(3)
+merge n:1 codigo_empleador year using "$usedata/firm_size.dta", nogenerate keep(3)
+
 bysort benef_enciptado year: egen nmon = max(_n)
 replace nmon = nmon == 12
 preserve
+bysort benef_enciptado year: egen firm = max(fsize)
+replace firm = firm == 3
 duplicates drop benef_enciptado year, force
-graph bar (mean) nmon, over(year) ytitle("% of workers with full employment") ///
-    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(off)
+foreach n in 0 1{
+	gen nmon_`n' = nmon if id_all == `n'
+	gen firm_`n' = firm if id_all == `n'
+}
+graph bar (mean) nmon_0 nmon_1, over(year) ytitle("% of workers with full employment") ///
+    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
 	graph export "$graphs/fullyear_emp.png", replace
+graph bar (mean) firm_0 firm_1, over(year) ytitle("% of workers in large firms") ///
+    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+	graph export "$graphs/fullyear_firm_large.png", replace
 restore
+preserve
 gen month = month(dofm(date))
 bysort benef_enciptado year: egen minx1 = min(monto_renta_imponible_pesos) if month <= 6
 bysort benef_enciptado year: egen maxx1 = max(monto_renta_imponible_pesos) if month <= 6
 bysort benef_enciptado year: egen minx2 = min(monto_renta_imponible_pesos) if month > 6
 bysort benef_enciptado year: egen maxx2 = max(monto_renta_imponible_pesos) if month > 6
-gen same_x = (minx1 == maxx1) & (minx2 == maxx2)
+gen same_x = (maxx1-minx1)/minx1 <0.2 | (maxx2-minx2)/minx2 <0.2
 replace same_x = 0 if nmon != 1
-
+bysort benef_enciptado year: egen same = min(same_x)
+bysort benef_enciptado year: egen jobs = max(n)
+replace jobs = jobs > 1
+duplicates drop benef_enciptado year, force
+foreach n in 0 1{
+	gen same_`n' = same if id_all == `n'
+	gen jobs_`n' = jobs if id_all == `n'
+}
+graph bar (mean) same_0 same_1 if nmon == 1, over(year) ytitle("% of workers with constant salary") ///
+    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/fullyear_salary.png", replace
+graph bar (mean) jobs_0 jobs_1 , over(year) ytitle("% of workers with more than one job") ///
+    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/fullyear_jobs.png", replace
+restore
+preserve
+foreach n in 0 1{
+	gen monto_renta_imponible_pesos_`n' = monto_renta_imponible_pesos if id_all == `n'
+}
+graph bar (mean) monto_renta_imponible_pesos_0 monto_renta_imponible_pesos_1, over(year) ytitle("Mean salary") ///
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1")) ylabel(0(300000)900000)
+	graph export "$graphs/fullyear_mean_salary.png", replace
+restore
 ************************************************
 *       3. Sick leaves                *
 ************************************************
 use "$usedata/Sick.dta", clear
+merge n:1 benef_enciptado using "$usedata/sample_id.dta", nogenerate keep(3)
+gen year = year(date)
+gen suma = 1
+preserve
+duplicates drop benef_enciptado year, force
+bysort id_all year: egen total = total(suma)
+gen total_1 = total/81764 if id_all == 1
+gen total_0 = total/38974 if id_all == 0
+graph bar (mean) total_0 total_1 , over(year) ytitle("% of workers with sick leaves") ///
+    blabel(bar, format(%4.2f)) ylabel(0(0.2)1) bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/percent-sl.png", replace
+restore
+preserve
+bysort benef_enciptado year: egen lic = total(suma)
+duplicates drop benef_enciptado year, force
+histogram lic if id_all == 1, freq ylabel(,format(%9.0f)) discrete
+graph export "$graphs/hist_1.png", replace
+histogram lic if id_all == 0, freq ylabel(,format(%9.0f)) discrete
+graph export "$graphs/hist_o.png", replace
+restore
+preserve 
+bysort id_all year: egen mean = mean(dias_otorgados)
+duplicates drop benef_enciptado year, force
 
+foreach n in 0 1{
+	gen mean_`n' = mean if id_all == `n'
+}
+graph bar (mean) mean_0 mean_1 , over(year) ytitle("Mean sick leave (days)") ///
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/days-sl.png", replace
+restore
+preserve 
+bysort benef_enciptado year: egen mean = total(dias_otorgados)
+duplicates drop benef_enciptado year, force
 
+foreach n in 0 1{
+	gen mean_`n' = mean if id_all == `n'
+}
+graph bar (mean) mean_0 mean_1 , over(year) ytitle("Total sick leave (days)") ///
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/totdays-sl.png", replace
+restore
+gen month_num = month(date)
+gen month_var = mofd(date)
+format month_var %tm
+bysort month_var: egen total = total(suma)
 
+twoway line total month_var, ytitle("Total sick leave") xtitle("Date")
+graph export "$graphs/tm-sl.png", replace
+twoway line total month_var, xline(698 710 722 734 746 758 770 782) ytitle("Total sick leave") xtitle("Date")
+graph export "$graphs/tmm-sl.png", replace
+bysort month_num: egen total2 = total(suma)
+twoway line total2 month_num
+graph export "$graphs/mnum-sl.png", replace
 ************************************************
 *       4. Pollution                  *
 ************************************************
 use "$usedata/pollution.dta", clear
-
-
+foreach n in MP10 MP25 NOX O3{
+	bysort cod_comuna: egen total_`n'= count(mean`n') 
+}
+tab total_MP25 if total_MP25 != 0 & date == td(01jan2018)
+collapse (sum) mean*, by(cod_comuna)
+replace meanMP10 = 1 if meanMP10 >0
+replace meanMP25 = 1 if meanMP25 >0
+replace meanNOX = 1 if meanNOX >0
+replace meanO3 = 1 if meanO3 >0
+tab meanMP10
+tab meanMP25
+tab meanNOX
+tab meanO3
+tempfile pol
+save `pol'
+use "$usedata/Population.dta", clear
+sort benef_enciptado year
+bysort benef_enciptado: replace foreign = foreign[_n-1] if year == 2021
+bysort benef_enciptado: egen max = max(_n)
+gen id_all = max == 7
+rename cod_comuna_pernat cod_comuna
+merge n:1 cod_comuna using `pol'
+duplicates drop benef_enciptado, force
+replace meanMP10 = 0 if meanMP10 ==.
+replace meanMP25 = 0 if meanMP25 ==.
+replace meanNOX = 0 if meanNOX ==.
+replace meanO3 = 0 if meanO3 ==.
+tab meanMP10 id_all
+tab meanMP25 id_all
+tab meanNOX id_all
+tab meanO3 id_all
 ************************************************
 *       5. Climate               *
 ************************************************

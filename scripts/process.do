@@ -29,16 +29,33 @@ export excel "C:\Users\black\Documents\SINCA\stations_info_stata.xlsx", firstrow
 
 
 
-import delimited "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.csv", clear varnames(1)
+import delimited "C:\Users\black\Documents\SINCA2\Data_Pollution_cleaned2.csv", clear varnames(1)
 duplicates drop centro, force
 keep centro
 rename centro Estación
-export delimited "C:\Users\black\Documents\SINCA\centros.csv", replace
+export delimited "C:\Users\black\Documents\SINCA2\centros2.csv", replace
+save "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.dta", replace
 import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
-rename Estación centro
-drop if centro == "."
-merge n:1 centro using "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.dta"
+drop if Estación == "."
+merge n:1 Estación using "C:\Users\black\Documents\SINCA\Data_Pollution_cleaned.dta"
 
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
+duplicates drop Entidad shp, force
+gen cent = 1
+replace cent = 0 if Estación == "."
+destring Pers, replace
+collapse (sum) Pers (mean) cent, by (cod_comuna)
+replace cent = 1 if cent > 0
+collapse (sum) Pers ,by (cent)
+
+import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros3.xlsx", clear firstrow
+duplicates drop Entidad shp, force
+gen cent = 1
+replace cent = 0 if Estación == "."
+destring Pers, replace
+collapse (sum) Pers (mean) cent, by (cod_comuna)
+replace cent = 1 if cent > 0
+collapse (sum) Pers ,by (cent)
 *****************************************
 import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
 import excel "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide\entidades_centros.xlsx", clear firstrow
