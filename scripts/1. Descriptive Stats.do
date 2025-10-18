@@ -251,13 +251,30 @@ tab meanMP10 id_all
 tab meanMP25 id_all
 tab meanNOX id_all
 tab meanO3 id_all
+
+import excel "$rawdata\pollution\entidades_centros.xlsx", firstrow clear
+destring Pers, replace
+gen suma = Pers if Estación != "."
+collapse (sum) Pers suma, by(cod_comuna)
+gen share = suma/Pers
+keep if share != 0
+sort share
+gen n = _n
+twoway area share n, xlabel(0(10)134) ytitle("Share of population with pollution data") xtitle("Municipality")
+graph export "$graphs/share_pollution.png", replace
+
 ************************************************
 *       5. Climate               *
 ************************************************
-use "$usedata/climate_pr.dta", clear
+use "$usedata/climate_tmin.dta", clear
+gen month = month(date)
 
-
-
+xtreg 
+gen year = year(date)
+collapse (mean) value, by(cod_comuna year)
+drop if cod_comuna == .
+reshape wide value, i(year) j(cod_comuna)
+twoway line value* year, legend(subtitle("Life expectancy") order(1 "White males" 2 "Black males"))
 
 
 
