@@ -102,6 +102,17 @@ graph export "$graphs/Income.png", replace
 graph bar (mean) densidad_0 densidad_1 if year < 2022, over(year) asyvars bargap(10) ytitle("Mean months") legend(label(1 "Months worked - id_all = 0") label(2 "Months worked - id_all = 1"))
 graph export "$graphs/Months.png", replace
 restore
+preserve
+destring edad_tramo, replace force
+bysort benef_enciptado: egen edad_2021 = total(edad_tramo)
+gen age = edad_2021 - (2021 - year) if edad_2021 != 0
+foreach n in 0 1{
+	gen age_`n' = age if id_all == `n'
+}
+estpost summarize age_0 age_1 if n == 1, d
+esttab using "$graphs/age_pop.tex", ///
+    cells("mean(fmt(2)) sd(fmt(2)) p25 p50 p75") ///
+    nonumber nomtitle label replace booktabs noobs
 ************************************************
 *       2. Employer                *
 ************************************************
@@ -112,19 +123,18 @@ merge n:1 codigo_empleador year using "$usedata/firm_size.dta", nogenerate keep(
 merge n:1 date using "$usedata/UF.dta", nogenerate keep(3)
 replace monto_renta_imponible_pesos = monto_renta_imponible_pesos/UF
 bysort benef_enciptado year: egen nmon = max(_n)
-replace nmon = nmon == 12
-preserver
+preserve
 foreach n in 0 1{
-	bysort benef_enciptado: egen maxmedian_`n' = max(median) if id_all == `n'
-	bysort benef_enciptado: egen maxdensidad_`n' = max(densidad) if id_all == `n'
-	gen median_`n' = median if id_all == `n'
-	gen densidad_`n' = densidad if id_all == `n'
+	gen monto_`n' = monto_renta_imponible_pesos if id_all == `n'
+	gen densidad_`n' = nmon if id_all == `n'
 }
-estpost summarize maxmedian_0 maxmedian_1 maxdensidad_0 maxdensidad_1 if n == 1, d
-esttab using "$graphs/med-den.tex", ///
+estpost summarize monto_0 monto_1 densidad_0 densidad_1 if n == 1, d
+esttab using "$graphs/med-den_emp.tex", ///
     cells("mean(fmt(2)) sd(fmt(2)) p25 p50 p75") ///
     nonumber nomtitle label replace booktabs noobs
 restore
+replace nmon = nmon == 12
+
 preserve
 bysort benef_enciptado year: egen firm = max(fsize)
 replace firm = firm == 3
@@ -197,14 +207,19 @@ graph export "$graphs/hist_o.png", replace
 restore
 preserve 
 bysort id_all year: egen mean = mean(dias_otorgados)
+bysort benef_enciptado year: egen total =total(suma)
 duplicates drop benef_enciptado year, force
 
 foreach n in 0 1{
 	gen mean_`n' = mean if id_all == `n'
+	gen total_`n' = total if id_all == `n'
 }
 graph bar (mean) mean_0 mean_1 , over(year) ytitle("Mean sick leave (days)") ///
      bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
 graph export "$graphs/days-sl.png", replace
+graph bar (mean) total_0 total_1 , over(year) ytitle("Mean sick leave") ///
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/mean-sl.png", replace
 restore
 preserve 
 bysort benef_enciptado year: egen mean = total(dias_otorgados)
@@ -221,10 +236,12 @@ gen month_num = month(date)
 gen month_var = mofd(date)
 format month_var %tm
 bysort month_var: egen total = total(suma)
-
-twoway line total month_var, ytitle("Total sick leave") xtitle("Date")
+collapse (sum) suma, by(month_var)
+tsset month_var
+tssmooth ma ma_var = suma, window(3)
+twoway line suma month_var, ytitle("Total sick leave") xtitle("Date")
 graph export "$graphs/tm-sl.png", replace
-twoway line total month_var, xline(698 710 722 734 746 758 770 782) ytitle("Total sick leave") xtitle("Date")
+twoway line ma_var month_var, ytitle("Total sick leave") xtitle("Date")
 graph export "$graphs/tmm-sl.png", replace
 bysort month_num: egen total2 = total(suma)
 twoway line total2 month_num

@@ -36,7 +36,22 @@ process_climate <- function(file_path, var_name) {
       temp = 100 * tempe / baseline
     ) %>%
     ungroup()
-
+  # --- STEP 4: Compute cumulative/consistent growth per comuna ---
+  growth_summary <- df %>%
+    group_by(cod_comuna) %>%
+    summarise(
+      cum_growth = mean(temp - 100, na.rm = TRUE),  # average % above baseline
+      .groups = "drop"
+    )
+  # --- STEP 5.1: Trim outliers (5–95 percentile) ---
+  p5  <- quantile(growth_summary$cum_growth, 0.05, na.rm = TRUE)
+  p95 <- quantile(growth_summary$cum_growth, 0.95, na.rm = TRUE)
+  growth_summary <- growth_summary %>%
+    filter(cum_growth >= p5, cum_growth <= p95)
+    
+    # Filter the main df to keep only trimmed comunas
+  df <- df %>%
+    filter(cod_comuna %in% growth_summary$cod_comuna)
   # --- STEP 3: Compute yearly mean across comunas (cod_comuna = 20000) ---
   df_mean <- df %>%
     group_by(year) %>%
@@ -45,13 +60,7 @@ process_climate <- function(file_path, var_name) {
       cod_comuna = 20000
     )
 
-  # --- STEP 4: Compute cumulative/consistent growth per comuna ---
-  growth_summary <- df %>%
-    group_by(cod_comuna) %>%
-    summarise(
-      cum_growth = mean(temp - 100, na.rm = TRUE),  # average % above baseline
-      .groups = "drop"
-    )
+
 
   # Identify key comunas
   most_growth_id   <- growth_summary$cod_comuna[which.max(growth_summary$cum_growth)]
@@ -174,7 +183,21 @@ process_var <- function(df, var_name) {
       temp = 100 * tempe / baseline
     ) %>%
     ungroup()
-
+  # --- STEP 5: Consistent (cumulative) growth ---
+  growth_summary <- df_norm %>%
+    group_by(cod_comuna) %>%
+    summarise(
+      cum_growth = mean(temp - 100, na.rm = TRUE),
+      .groups = "drop"
+    )
+    # --- STEP 5.1: Trim outliers (5–95 percentile) ---
+  p5  <- quantile(growth_summary$cum_growth, 0.05, na.rm = TRUE)
+  p95 <- quantile(growth_summary$cum_growth, 0.95, na.rm = TRUE)
+  growth_summary <- growth_summary %>%
+    filter(cum_growth >= p5, cum_growth <= p95)
+  # Filter the main df to keep only trimmed comunas
+  df_norm <- df_norm %>%
+    filter(cod_comuna %in% growth_summary$cod_comuna)
   # --- STEP 4: Compute yearly mean (cod_comuna = 20000) ---
   df_mean <- df_norm %>%
     group_by(year) %>%
@@ -183,13 +206,7 @@ process_var <- function(df, var_name) {
       cod_comuna = 20000
     )
 
-  # --- STEP 5: Consistent (cumulative) growth ---
-  growth_summary <- df_norm %>%
-    group_by(cod_comuna) %>%
-    summarise(
-      cum_growth = mean(temp - 100, na.rm = TRUE),
-      .groups = "drop"
-    )
+
 
   most_growth_id   <- growth_summary$cod_comuna[which.max(growth_summary$cum_growth)]
   least_growth_id  <- growth_summary$cod_comuna[which.min(growth_summary$cum_growth)]
