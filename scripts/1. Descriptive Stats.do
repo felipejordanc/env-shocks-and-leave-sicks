@@ -109,9 +109,22 @@ use "$usedata/Employer.dta", clear
 gen year = year(dofm(date))
 merge n:1 benef_enciptado using "$usedata/sample_id.dta", nogenerate keep(3)
 merge n:1 codigo_empleador year using "$usedata/firm_size.dta", nogenerate keep(3)
-
+merge n:1 date using "$usedata/UF.dta", nogenerate keep(3)
+replace monto_renta_imponible_pesos = monto_renta_imponible_pesos/UF
 bysort benef_enciptado year: egen nmon = max(_n)
 replace nmon = nmon == 12
+preserver
+foreach n in 0 1{
+	bysort benef_enciptado: egen maxmedian_`n' = max(median) if id_all == `n'
+	bysort benef_enciptado: egen maxdensidad_`n' = max(densidad) if id_all == `n'
+	gen median_`n' = median if id_all == `n'
+	gen densidad_`n' = densidad if id_all == `n'
+}
+estpost summarize maxmedian_0 maxmedian_1 maxdensidad_0 maxdensidad_1 if n == 1, d
+esttab using "$graphs/med-den.tex", ///
+    cells("mean(fmt(2)) sd(fmt(2)) p25 p50 p75") ///
+    nonumber nomtitle label replace booktabs noobs
+restore
 preserve
 bysort benef_enciptado year: egen firm = max(fsize)
 replace firm = firm == 3
@@ -155,7 +168,7 @@ foreach n in 0 1{
 	gen monto_renta_imponible_pesos_`n' = monto_renta_imponible_pesos if id_all == `n'
 }
 graph bar (mean) monto_renta_imponible_pesos_0 monto_renta_imponible_pesos_1, over(year) ytitle("Mean salary") ///
-     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1")) ylabel(0(300000)900000)
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1")) 
 	graph export "$graphs/fullyear_mean_salary.png", replace
 restore
 ************************************************
