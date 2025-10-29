@@ -292,23 +292,134 @@ sort share
 gen n = _n
 twoway area share n, xlabel(0(10)134) ytitle("Share of population with pollution data") xtitle("Municipality")
 graph export "$graphs/share_pollution.png", replace
-
+keep if share >= 0.2
+keep cod_comuna share
 ************************************************
 *       5. Climate               *
 ************************************************
-use "$usedata/climate_tmin.dta", clear
-gen month = month(date)
+foreach y in 2018 2019 2020{
+	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1) 
+	merge 1:1 benef_enciptado using "$usedata/benef_sample.dta", nogenerate keep(3)
+	gen sex = sexo_cor == "HOMBRE"
+	gen carga = titular_carga == "CARGA"
+	gen foreign = nacionalidad_cor == "EXTRANJERA"
+	keep benef_enciptado edad_tramo cod_comuna_pernat tramo desc_tipo_asegurado densidad tramo_renta sex carga foreign
+	gen year = `y'
+	tempfile b_`y'
+	save `b_`y''
+}
 
-xtreg 
+
+foreach y in 2022 2023 2024{
+	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1) 
+	rename código_beneficiario benef_enciptado
+	merge 1:1 benef_enciptado using "$usedata/benef_sample.dta", nogenerate keep(3)
+	gen sex = sexo == "Hombre"
+	gen carga = titular_carga == "Carga"
+	gen foreign = nacionalidad == "Extranjera"
+	merge n:1 comuna_beneficiario using "C:\Users\black\Dropbox\GSL\Bases intermedias\codigo_comunas.dta", update nogenerate keep(3)
+	rename tramo_fonasa tramo
+	rename tipo_asegurado desc_tipo_asegurado
+	keep benef_enciptado edad_tramo cod_comuna_pernat tramo desc_tipo_asegurado tramo_renta sex carga foreign
+	gen year = `y'
+	tempfile b_`y'
+	save `b_`y''
+}
+import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
+rename id_asegurado benef_enciptado
+merge 1:1 benef_enciptado using "$usedata/benef_sample.dta", nogenerate keep(3)
+merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogenerate keep(3)
+rename grupo tramo
+rename tipo_trabajador desc_tipo_asegurado
+rename tramo_ingreso tramo_renta
+gen sex = sexo == "HOMBRE"
+gen carga = titular_carga == "CARGA"
+gen year = 2021
+rename edad edad_tramo
+tostring edad_tramo, replace
+drop año fec fecha_nacimiento sexo titular_carga id_titular comuna mto_cotiz_mes comuna_beneficiario
+tempfile b_2021
+save `b_2021'
+
+use `b_2018'
+foreach y in 2019 2020 2021 2022 2023 2024{
+	append using `b_`y''
+}
+preserve
+keep benef_enciptado cod_comuna_pernat year
+rename cod_comuna_pernat cod_comuna
+save "$usedata/id_com.dta"
+restore
+gen suma = 1
+collapse (sum) suma, by(cod_comuna_pernat year)
+rename cod_comuna_pernat cod_comuna
+save "$usedata/cot_pop.dta"
+
+import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
+gen date = daily(fecha_emision, "DMY")
+format date %td
 gen year = year(date)
-collapse (mean) value, by(cod_comuna year)
-drop if cod_comuna == .
-reshape wide value, i(year) j(cod_comuna)
-twoway line value* year, legend(subtitle("Life expectancy") order(1 "White males" 2 "Black males"))
+rename encripbi_rut_traba benef_enciptado
+merge n:1 benef_enciptado year using "$usedata/id_com.dta", nogenerate keep(3)
+gen suma= 1
+collapse (sum) suma, by(cod_comuna date year)
+rename suma sick
+merge n:1 cod_comuna year using "$usedata/cot_pop.dta", nogenerate keep(3)
+gen y = (sick/suma)*1000
+xtset cod_comuna date
+reg y i.date i.cod_comuna
+predict resid, residuals
+tssmooth ma ma_sl = sick, window(0 1 7)
+gen y2 = (ma_sl/suma)*1000
+reg y2 i.date i.cod_comuna
+predict resid2, residuals
+keep date cod_comuna resid resid2
+save "$usedata/resid_sl.dta", replace
+use "$usedata/pollution.dta", clear
+foreach v in meanMP25 meanNOX meanO3 meanMP10{
+	preserve
+	reg `v' i.date i.cod_comuna
+	predict resid, residuals
+	keep date cod_comuna resid
+	rename resid resid_`v'
+	merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+	scatter resid resid_`v', ytitle("SL residuals") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'.png", replace
+	scatter resid2 resid_`v', ytitle("SL residuals - MA") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'_ma.png", replace
+	restore
+}
 
+use "$usedata/climate_tmin.dta", clear
+reg value i.date i.cod_comuna
+predict resid, residuals
+keep date cod_comuna resid
+rename resid resid_tmin
+merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+scatter resid resid_tmin, ytitle("SL residuals") xtitle("Tmin residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_tmin.png", replace
+scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Tmin residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_tmin_ma.png", replace
 
+use "$usedata/climate_tmax.dta", clear
+reg value i.date i.cod_comuna
+predict resid, residuals
+keep date cod_comuna resid
+rename resid resid_tmin
+merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+scatter resid resid_tmin, ytitle("SL residuals") xtitle("Tmax residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_tmax.png", replace
+scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Tmax residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_tmax_ma.png", replace
 
-
-
-
-
+use "$usedata/climate_pr.dta", clear
+reg value i.date i.cod_comuna
+predict resid, residuals
+keep date cod_comuna resid
+rename resid resid_tmin
+merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+scatter resid resid_tmin , ytitle("SL residuals") xtitle("Precipitation residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_pr.png", replace
+merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Precipitation residuals")  color(cyan%10) msize(vtiny)
+graph export "$graphs/resid_pr_ma.png", replace
