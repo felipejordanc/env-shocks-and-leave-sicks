@@ -292,8 +292,28 @@ sort share
 gen n = _n
 twoway area share n, xlabel(0(10)134) ytitle("Share of population with pollution data") xtitle("Municipality")
 graph export "$graphs/share_pollution.png", replace
-keep if share >= 0.2
-keep cod_comuna share
+
+use "$usedata/pollution.dta", clear
+gen suma = 1
+foreach m in MP10 MP25 NOX O3{
+	gen missing`m' = mean`m' == .
+}
+collapse (sum) suma missing*, by(cod_comuna)
+foreach m in MP10 MP25 NOX O3{
+	replace missing`m' = . if missing`m' == 2557
+}
+foreach m in MP10 MP25 NOX O3{
+	preserve
+	sort missing`m'
+	drop if missing`m' == .
+	gen n = _n
+	summ missing`m'
+	local n = r(N)
+	twoway area missing`m' n, ytitle("Number of missing days - `m'") xtitle("Municipality") xlabel(0(5)`n')
+	graph export "$graphs/missing_`m'_pollution.png", replace
+	restore
+}
+
 ************************************************
 *       5. Climate               *
 ************************************************

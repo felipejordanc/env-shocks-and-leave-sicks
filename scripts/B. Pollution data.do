@@ -29,6 +29,16 @@ if "`c(username)'" == "black"{
 ************************************************
 *       1. Random sample                       *
 ************************************************
+import excel "$rawdata\pollution\entidades_centros.xlsx", firstrow clear
+destring Pers, replace
+gen suma = Pers if Estación != "."
+collapse (sum) Pers suma, by(cod_comuna)
+gen share = suma/Pers
+keep if share >= 0.2
+keep cod_comuna share
+save "$usedata/pollution_share.dta", replace
+
+
 clear all
 set obs 1
 gen date = mdy(1,1,2018)
@@ -112,10 +122,11 @@ rename max_val max
 rename min_val min 
 rename mean_val mean 
 reshape wide max min mean, i(cod_comuna date) j(medida) string
+merge n:1 cod_comuna using "$usedata/pollution_share.dta", keepusing(cod_comuna) keep(3) nogenerate
 save "$usedata/pollution.dta", replace
 
 
-
+**************************
 
 import excel "$rawdata\pollution\entidades_centros2.xlsx", firstrow clear
 duplicates drop Entidad shp, force

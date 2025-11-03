@@ -1,4 +1,63 @@
-  zvgb x x   
+*********************************************
+* Purpose: Sick leave database
+*
+* Date: 05/08/2025
+*
+* Author: Matías Black
+*********************************************
+clear all
+
+************************************************
+*                0. Key Macros                 *
+************************************************
+
+*Folder globals
+
+di "current user: `c(username)'"
+if "`c(username)'" == "black"{
+	global path "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks"
+}
+
+
+
+	global rawdata "$path/remote/data/A_raw"
+	global usedata "$path/remote/data/B_intermediate"
+	global final "$path/remote/data/C_final"
+	global graphs "$path/graphs"
+	global tables "$path/tables"
+	
+************************************************
+*       1. Random sample                       *
+************************************************
+foreach v in pr tmin tmax{
+	import delimited "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide/`v'_rural.csv", varnames(1) clear
+	drop if entity == 16180 |entity == 16437 |entity == 16578 |entity == 16692 |entity == 16693 |entity == 16694 |entity == 16695 |entity == 16696 |entity == 16697 |entity == 16698 |entity == 16699 |entity == 16700 |entity == 16701 |entity == 16702 |entity == 16703 |entity == 27600 |entity == 28120 |entity == 28197 
+	gen shp = "ru"
+	tempfile rur
+	save `rur'
+	import delimited "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide/`v'_manzana.csv", varnames(1) clear
+	drop if entity >= 91858 & entity <= 91870
+	drop if entity >= 92890 & entity <= 92914
+	drop if entity == 91928 | entity == 92103 | entity == 92492 | entity == 92505
+	gen shp = "ma"
+	append using `rur'
+	rename date date2
+	gen date = daily(date2, "YMD")
+	format date %td
+	preserve
+	duplicates drop entity shp, force
+	collapse (sum) total_pers, by(cod_comuna)
+	rename total_pers total_pop
+	tempfile com
+	save `com'
+	restore
+	merge m:1 cod_comuna using `com', nogenerate
+	gen pob_w = total_pers/total_pop
+	replace value = value*pob_w
+	collapse (sum) value, by(date cod_comuna)
+	save "$usedata/climate_`v'.dta", replace
+	clear all
+}
 
 
 local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
