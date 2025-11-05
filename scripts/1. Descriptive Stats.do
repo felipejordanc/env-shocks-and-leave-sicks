@@ -213,13 +213,29 @@ duplicates drop benef_enciptado year, force
 foreach n in 0 1{
 	gen mean_`n' = mean if id_all == `n'
 	gen total_`n' = total if id_all == `n'
-}
+	}
 graph bar (mean) mean_0 mean_1 , over(year) ytitle("Mean sick leave (days)") ///
      bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
 graph export "$graphs/days-sl.png", replace
 graph bar (mean) total_0 total_1 , over(year) ytitle("Mean sick leave") ///
      bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
 graph export "$graphs/mean-sl.png", replace
+restore
+preserve 
+merge n:1 benef_enciptado using "$usedata/sample_id.dta", nogenerate 
+fillin benef_enciptado year
+bysort benef_enciptado: replace id_all = id_all[_n-1] if id_all == .
+bysort benef_enciptado: replace id_all = id_all[_N] if id_all == .
+replace suma = 0 if suma == .
+bysort benef_enciptado year: egen total =total(suma)
+duplicates drop benef_enciptado year, force
+
+foreach n in 0 1{
+	gen total_`n' = total if id_all == `n'
+}
+graph bar (mean) total_0 total_1 , over(year) ytitle("Mean sick leave") ///
+     bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
+graph export "$graphs/mean-sl_all.png", replace
 restore
 preserve 
 bysort benef_enciptado year: egen mean = total(dias_otorgados)
@@ -313,10 +329,25 @@ foreach m in MP10 MP25 NOX O3{
 	graph export "$graphs/missing_`m'_pollution.png", replace
 	restore
 }
+import delimited "$rawdata\pollution\Data_Pollution_cleaned.csv", varnames(1) clear
+gen date = daily(fechayymmdd, "YMD")
+format date %td
+drop fechayymmdd
+keep if medida == "Material_particulado_MP_10" | medida == "Material_particulado_MP_25" | medida == "Ozono-" | medida == "xidos_de_nitrgeno"
+replace medida = "MP10" if medida == "Material_particulado_MP_10"
+replace medida = "MP25" if medida == "Material_particulado_MP_25"
+replace medida = "NOX" if medida == "xidos_de_nitrgeno"
+replace medida = "O3"  if medida == "Ozono-"
+rename centro Estacion
+gen suma = 1
+drop if min_val==0 & max_val==0 & mean_val==0
+drop min_val max_val mean_val
+save "$usedata/centers_nomiss.dta", replace
 
 ************************************************
 *       5. Climate               *
 ************************************************
+*Creating dbs
 foreach y in 2018 2019 2020{
 	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1) 
 	merge 1:1 benef_enciptado using "$usedata/benef_sample.dta", nogenerate keep(3)
@@ -378,11 +409,16 @@ save "$usedata/cot_pop.dta"
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
 gen date = daily(fecha_emision, "DMY")
 format date %td
+gen date2 = daily(fecha_desde, "DMY")
+format date2 %td
+gen delta = (date - date2)>=0
+label define deltal 1 "Reactive" 0 "Proactive"
+label values delta deltal
 gen year = year(date)
 rename encripbi_rut_traba benef_enciptado
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", nogenerate keep(3)
 gen suma= 1
-collapse (sum) suma, by(cod_comuna date year)
+collapse (sum) suma, by(cod_comuna date year delta)
 rename suma sick
 merge n:1 cod_comuna year using "$usedata/cot_pop.dta", nogenerate keep(3)
 gen y = (sick/suma)*1000
@@ -395,6 +431,11 @@ reg y2 i.date i.cod_comuna
 predict resid2, residuals
 keep date cod_comuna resid resid2
 save "$usedata/resid_sl.dta", replace
+
+
+*Residuals
+
+
 use "$usedata/pollution.dta", clear
 foreach v in meanMP25 meanNOX meanO3 meanMP10{
 	preserve
