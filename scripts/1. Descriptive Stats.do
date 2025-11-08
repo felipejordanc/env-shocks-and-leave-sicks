@@ -417,19 +417,28 @@ label values delta deltal
 gen year = year(date)
 rename encripbi_rut_traba benef_enciptado
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", nogenerate keep(3)
-gen suma= 1
-collapse (sum) suma, by(cod_comuna date year delta)
-rename suma sick
+gen suma_re= 1 if delta==1
+gen suma_pro= 1 if delta==0
+collapse (sum) suma_re suma_pro, by(cod_comuna date year)
 merge n:1 cod_comuna year using "$usedata/cot_pop.dta", nogenerate keep(3)
-gen y = (sick/suma)*1000
+gen month = month(date)
+gen reg = floor(cod_comuna/1000)
+gen reg_month= month*100 + reg
+gen y_re = (suma_re/suma)*1000
+gen y_pro = (suma_pro/suma)*1000
 xtset cod_comuna date
-reg y i.date i.cod_comuna
-predict resid, residuals
-tssmooth ma ma_sl = sick, window(0 1 7)
-gen y2 = (ma_sl/suma)*1000
-reg y2 i.date i.cod_comuna
-predict resid2, residuals
-keep date cod_comuna resid resid2
+tssmooth ma ma_sl_re = suma_re, window(0 1 7)
+tssmooth ma ma_sl_pro = suma_pro, window(0 1 7)
+gen y2_re = (ma_sl_re/suma)*1000
+gen y2_pro = (ma_sl_pro/suma)*1000
+
+foreach v in y_re y_pro y2_re y2_pro{
+	reg `v' i.date i.cod_comuna i.reg_month
+	predict resid_`v', residuals
+}
+
+
+keep date cod_comuna resid*
 save "$usedata/resid_sl.dta", replace
 
 
@@ -439,48 +448,41 @@ save "$usedata/resid_sl.dta", replace
 use "$usedata/pollution.dta", clear
 foreach v in meanMP25 meanNOX meanO3 meanMP10{
 	preserve
-	reg `v' i.date i.cod_comuna
+	gen month = month(date)
+	gen reg = floor(cod_comuna/1000)
+	gen reg_month= month*100 + reg
+	reg `v' i.date i.cod_comuna i.reg_month
 	predict resid, residuals
 	keep date cod_comuna resid
 	rename resid resid_`v'
 	merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
-	scatter resid resid_`v', ytitle("SL residuals") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
-	graph export "$graphs/resid_`v'.png", replace
-	scatter resid2 resid_`v', ytitle("SL residuals - MA") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
-	graph export "$graphs/resid_`v'_ma.png", replace
+	scatter resid_y_re resid_`v', ytitle("SL residuals - Reactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)  ylabel(-2(1)4)
+	graph export "$graphs/resid_`v'_re.png", replace
+	scatter resid_y_pro resid_`v', ytitle("SL residuals - Proactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny) ylabel(-2(1)4)
+	graph export "$graphs/resid_`v'_pro.png", replace
+	scatter resid_y2_re resid_`v', ytitle("SL residuals - MA, Reactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny) ylabel(-2(1)4)
+	graph export "$graphs/resid_`v'_ma_re.png", replace
+	scatter resid_y2_pro resid_`v', ytitle("SL residuals - MA, Proactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny) ylabel(-2(1)4)
+	graph export "$graphs/resid_`v'_ma_pro.png", replace
 	restore
 }
 
-use "$usedata/climate_tmin.dta", clear
-reg value i.date i.cod_comuna
-predict resid, residuals
-keep date cod_comuna resid
-rename resid resid_tmin
-merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
-scatter resid resid_tmin, ytitle("SL residuals") xtitle("Tmin residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_tmin.png", replace
-scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Tmin residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_tmin_ma.png", replace
-
-use "$usedata/climate_tmax.dta", clear
-reg value i.date i.cod_comuna
-predict resid, residuals
-keep date cod_comuna resid
-rename resid resid_tmin
-merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
-scatter resid resid_tmin, ytitle("SL residuals") xtitle("Tmax residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_tmax.png", replace
-scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Tmax residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_tmax_ma.png", replace
-
-use "$usedata/climate_pr.dta", clear
-reg value i.date i.cod_comuna
-predict resid, residuals
-keep date cod_comuna resid
-rename resid resid_tmin
-merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
-scatter resid resid_tmin , ytitle("SL residuals") xtitle("Precipitation residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_pr.png", replace
-merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
-scatter resid2 resid_tmin, ytitle("SL residuals - MA") xtitle("Precipitation residuals")  color(cyan%10) msize(vtiny)
-graph export "$graphs/resid_pr_ma.png", replace
+foreach v in tmin tmax pr{
+	use "$usedata/climate_`v'.dta", clear
+	gen month = month(date)
+	gen reg = floor(cod_comuna/1000)
+	gen reg_month= month*100 + reg
+	reg value i.date i.cod_comuna i.reg_month
+	predict resid, residuals
+	keep date cod_comuna resid
+	rename resid resid_`v'
+	merge 1:1 cod_comuna date using "$usedata/resid_sl.dta", nogenerate keep(3)
+	scatter resid_y_re resid_`v', ytitle("SL residuals - Reactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'_re.png", replace
+	scatter resid_y_pro resid_`v', ytitle("SL residuals - Proactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'_pro.png", replace
+	scatter resid_y2_re resid_`v', ytitle("SL residuals - MA, Reactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'_ma_re.png", replace
+	scatter resid_y2_pro resid_`v', ytitle("SL residuals - MA, Proactive") xtitle("`v' residuals")  color(cyan%10) msize(vtiny)
+	graph export "$graphs/resid_`v'_ma_pro.png", replace
+}
