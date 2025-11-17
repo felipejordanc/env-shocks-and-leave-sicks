@@ -38,9 +38,6 @@ collapse (max) value, by(cod_comuna date)
 replace value = round(value)
 save "$usedata/tmax_reg.dta", replace
 use "$usedata/climate_tmax.dta", clear
-rename date date_td
-gen date = wofd(date_td)
-format date %tw
 collapse (max) value, by(cod_comuna date)
 replace value = round(value)
 save "$usedata/tmax_w.dta", replace
@@ -66,11 +63,14 @@ replace codigo_empleador = codigo_empleador !=.
 gen year = year(dofm(date))
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
 merge n:1 cod_comuna date using "$usedata/tmax_reg.dta", keep(1 3) nogenerate
-forvalues i=6/42{
-	gen dum_`i' = 0
-	replace dum_`i' = 1 if value == `i'
+gen dum_9 = value <10
+gen dum_38 = value >37
+
+forvalues i=5/18{
+	gen dum_`=`i'*2'_`=`i'*2+1' = 0
+	replace dum_`=`i'*2'_`=`i'*2+1' = 1 if value == `i'*2 | value == `i'*2 + 1
 }
-drop dum_21
+drop dum_20_21
 forvalues i=1/3{
 	gen y_`i' = 0
 	bysort benef_enciptado (date): replace y_`i' = 1 if codigo_empleador[_n+`i'] == 1
@@ -107,25 +107,28 @@ drop enddate
 tempfile dates
 save `dates'
 
-use "$usedata/benef_sample1.dta", clear
+use "$usedata/sample_id.dta", clear
+keep if id_all == 1
+sample 80
 cross using `dates'
 sort benef_enciptado date
-merge 1:1 benef_enciptado date using "$usedata/Sick.dta", keepusing(cod_tipo_licencia) nogenerate
+merge 1:1 benef_enciptado date using "$usedata/Sick.dta", keepusing(cod_tipo_licencia) nogenerate keep(1 3)
 replace cod_tipo_licencia = cod_tipo_licencia !=.
-rename date date2
-gen date = wofd(date2)
-format date %tw
-collapse (max) cod_tipo_licencia, by(benef_enciptado date)
+
 save "$usedata/temp.dta", replace
 use "$usedata/temp.dta", clear
-gen year = year(dofw(date))
+gen year = year(date)
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
-merge n:1 cod_comuna date using "$usedata/tmax_w.dta", keep(1 3) nogenerate
-forvalues i=6/42{
-	gen dum_`i' = 0
-	replace dum_`i' = 1 if value == `i'
+merge n:1 cod_comuna date using "$usedata/climate_tmax.dta", keep(1 3) nogenerate
+replace value = round(value)
+gen dum_9 = value <10
+gen dum_38 = value >37
+
+forvalues i=5/18{
+	gen dum_`=`i'*2'_`=`i'*2+1' = 0
+	replace dum_`=`i'*2'_`=`i'*2+1' = 1 if value == `i'*2 | value == `i'*2 + 1
 }
-drop dum_21
+drop dum_20_21
 forvalues i=0/3{
 	gen y_`i' = 0
 	bysort benef_enciptado (date): replace y_`i' = 1 if cod_tipo_licencia[_n+`i'] == 1
@@ -135,10 +138,15 @@ gen reg = floor(cod_comuna/1000)
 gen reg_month= month*100 + reg
 save "$usedata/reg_w.dta", replace
 use "$usedata/reg_w.dta", clear
+drop if year == 2020 | year == 2021
+drop id_all cod_tipo_licencia year month reg
 xtset benef_enciptado date
 forvalues i=0/3{
 	replace y_`i' = 100 if y_`i' == 1
 }
 eststo model1: reghdfe y_0 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 eststo model2: reghdfe y_1 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model3: reghdfe y_2 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model4: reghdfe y_3 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+
 esttab model1 using "${tables}/y_sick.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(dum*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t" "t+1") nonotes

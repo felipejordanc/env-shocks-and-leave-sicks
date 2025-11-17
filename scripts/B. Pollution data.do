@@ -179,10 +179,39 @@ cross using `dates'
 merge m:1 Estación date using `pol', nogenerate keep(3)
 replace Entidad = Entidad + shp*100000
 drop shp medida decile Estación
-bysort Entidad date: gen n= _n
-bysort Entidad date: replace date = date[_n-1]
-reshape wide min_val max_val mean_val, i(Entidad cod_comuna Pers weight date) j(n)
-collapse (sum) min_val* max_val* mean_val*, by(Entidad cod_comuna Pers weight date)
+bysort Entidad date (weight): gen n= _n
+replace min_val = . if min_val==0 & max_val==0 & mean_val==0
+replace max_val = . if min_val==. & max_val==0 & mean_val==0
+replace mean_val = . if min_val==. & max_val==. & mean_val==0
+reshape wide weight min_val max_val mean_val, i(Entidad cod_comuna Pers date) j(n)
+by Entidad: gen n = (weight1 != .) + (weight2!=.) + (weight3!=.)
+preserve
+keep if n == 1
+tempfile n1
+save`n1'
+restore
+keep if n==2
+keep n Entidad-mean_val2
+summ n
+local n = r(mean)
+forvalues i=1/`n'{
+	gen y_`i' = mean_val`i'
+}
+drop mean_val1
+gen y1_hat = .
+levelsof Entidad, local(entidades)
+foreach e of local entidades {
+	qui reg y_1 mean_val2 if Entidad == `e'
+	predict y1_h if Entidad == `e' & y_1 == .
+	replace y1_hat = y1_h if y1_hat == .
+	drop y1_h
+}
+
+* Replace missing with prediction
+replace `y' = `y'_hat if mean_val1 == .
+drop `y'_hat
+
+
 replace min_val = min_val * weight
 replace max_val = max_val * weight
 replace mean_val = mean_val * weight
