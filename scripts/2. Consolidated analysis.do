@@ -109,10 +109,11 @@ save `dates'
 
 use "$usedata/sample_id.dta", clear
 keep if id_all == 1
-sample 80
+set seed 12345
+*sample 80
 cross using `dates'
 sort benef_enciptado date
-merge 1:1 benef_enciptado date using "$usedata/Sick.dta", keepusing(cod_tipo_licencia) nogenerate keep(1 3)
+merge 1:1 benef_enciptado date using "$usedata/Sick2.dta", keepusing(cod_tipo_licencia) nogenerate keep(1 3)
 replace cod_tipo_licencia = cod_tipo_licencia !=.
 
 save "$usedata/temp.dta", replace
@@ -136,17 +137,61 @@ forvalues i=0/3{
 gen month = month(dofm(date))
 gen reg = floor(cod_comuna/1000)
 gen reg_month= month*100 + reg
+compress
 save "$usedata/reg_w.dta", replace
 use "$usedata/reg_w.dta", clear
 drop if year == 2020 | year == 2021
-drop id_all cod_tipo_licencia year month reg
+drop id_all cod_tipo_licencia year month reg y_1 y_2 y_3 value
 xtset benef_enciptado date
-forvalues i=0/3{
-	replace y_`i' = 100 if y_`i' == 1
+gen y_1 = y_0
+forvalues k = 1/7 {
+    bys benef_enciptado (date): replace y_1 = 1 if F`k'.y_0 == 1
 }
-eststo model1: reghdfe y_0 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model2: reghdfe y_1 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model3: reghdfe y_2 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model4: reghdfe y_3 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+replace y_0 = 100 if y_0 == 1
+replace y_1 = 100 if y_1 == 1
 
-esttab model1 using "${tables}/y_sick.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(dum*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t" "t+1") nonotes
+
+drop dum*
+merge n:1 cod_comuna date using "$usedata/pollution.dta", keep(1 3) nogenerate keepusing(meanMP10 meanMP25 maxMP10 maxMP25)
+
+eststo model0p: reghdfe y_1 meanMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model1p: reghdfe y_1 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model2p: reghdfe y_1 meanMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+
+esttab model0p model1p model2p using "${tables}/y_sick1_pol.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(mean*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t+7" "t+7" "t+7") nonotes
+
+eststo model3p: reghdfe y_0 meanMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model4p: reghdfe y_0 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model5p: reghdfe y_0 meanMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+
+esttab model3p model4p model5p using "${tables}/y_sick0_pol.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(mean*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t" "t" "t") nonotes
+eststo model6p: reghdfe y_1 maxMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model7p: reghdfe y_1 maxMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model8p: reghdfe y_1 maxMP10 maxMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+
+esttab model6p model7p model8p using "${tables}/y_sick1_polm.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(max*) b(%9.4f) se(%9.3f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("t+7" "t+7" "t+7") nonotes
+
+eststo model9p: reghdfe y_0 maxMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model10p: reghdfe y_0 maxMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model11p: reghdfe y_0 maxMP10 maxMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+
+esttab model9p model10p model11p using "${tables}/y_sick0_polm.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(max*) b(%9.4f) se(%9.3f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("t" "t" "t") nonotes
+
+esttab model* using "${tables}/y_sick0_pol_tot.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(max*) b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("t+7" "t+7" "t+7" "t" "t" "t" "t+7" "t+7" "t+7" "t" "t" "t") nonotes
+
+use "$usedata/reg_w.dta", clear
+
+drop if year == 2020 | year == 2021
+drop id_all cod_tipo_licencia year month reg y_1 y_2 y_3 value
+xtset benef_enciptado date
+gen y_1 = y_0
+forvalues k = 1/7 {
+    bys benef_enciptado (date): replace y_1 = 1 if F`k'.y_0 == 1
+}
+replace y_0 = 100 if y_0 == 1
+replace y_1 = 100 if y_1 == 1
+
+eststo model0p: reghdfe y_1 dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model1p: reghdfe y_1 dum*, absorb(date cod_comuna reg_month benef_enciptado) vce(cluster cod_comuna)
+
+esttab model0p model1p using "${tables}/y_sick1.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(mean*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t+7" "t+7,i") nonotes

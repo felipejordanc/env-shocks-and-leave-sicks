@@ -163,6 +163,8 @@ save "$usedata/Employer.dta", replace
 *         4. Sick leave data cleaning          *
 ************************************************
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
+rename encripbi_rut_traba benef_enciptado
+merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
 gen date = daily(fecha_emision, "DMY")
 format date %td
 gen date2 = daily(fecha_desde, "DMY")
@@ -171,15 +173,18 @@ gen year = year(date)
 bysort rut_prof_encriptado year: gen obs_id_year = _N
 bysort year: egen cutoff = pctile(obs_id_year), p(99)
 gen top1pct = obs_id_year >= cutoff
-rename encripbi_rut_traba benef_enciptado
 gen delta = date - date2
 keep if delta <= 7 & delta >= -7
+preserve
 duplicates drop benef_enciptado date, force // Cambiar a keep max
-merge n:1 benef_enciptado using "$usedata/benef_sample1.dta", nogenerate keep(3)
-
 keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta lic_cod_previsional res_categoria_cie10
 save "$usedata/Sick.dta", replace
-
+restore
+drop date
+rename date2 date
+duplicates drop benef_enciptado date, force // Cambiar a keep max
+keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta lic_cod_previsional res_categoria_cie10
+save "$usedata/Sick2.dta", replace
 ************************************************
 *         5. Main data cleaning          *
 ************************************************
