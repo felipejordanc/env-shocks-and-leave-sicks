@@ -102,7 +102,6 @@ graph export "$graphs/Income.png", replace
 graph bar (mean) densidad_0 densidad_1 if year < 2022, over(year) asyvars bargap(10) ytitle("Mean months") legend(label(1 "Months worked - id_all = 0") label(2 "Months worked - id_all = 1"))
 graph export "$graphs/Months.png", replace
 restore
-preserve
 destring edad_tramo, replace force
 bysort benef_enciptado: egen edad_2021 = total(edad_tramo)
 gen age = edad_2021 - (2021 - year) if edad_2021 != 0
@@ -248,20 +247,6 @@ graph bar (mean) mean_0 mean_1 , over(year) ytitle("Total sick leave (days)") //
      bargap(20) legend(label(1 "id_all = 0") label(2 "id_all = 1"))
 graph export "$graphs/totdays-sl.png", replace
 restore
-gen month_num = month(date)
-gen month_var = mofd(date)
-format month_var %tm
-bysort month_var: egen total = total(suma)
-collapse (sum) suma, by(month_var)
-tsset month_var
-tssmooth ma ma_var = suma, window(3)
-twoway line suma month_var, ytitle("Total sick leave") xtitle("Date")
-graph export "$graphs/tm-sl.png", replace
-twoway line ma_var month_var, ytitle("Total sick leave") xtitle("Date")
-graph export "$graphs/tmm-sl.png", replace
-bysort month_num: egen total2 = total(suma)
-twoway line total2 month_num
-graph export "$graphs/mnum-sl.png", replace
 ************************************************
 *       4. Pollution                  *
 ************************************************
@@ -399,12 +384,12 @@ foreach y in 2019 2020 2021 2022 2023 2024{
 preserve
 keep benef_enciptado cod_comuna_pernat year
 rename cod_comuna_pernat cod_comuna
-save "$usedata/id_com.dta"
+save "$usedata/id_com.dta", replace
 restore
 gen suma = 1
 collapse (sum) suma, by(cod_comuna_pernat year)
 rename cod_comuna_pernat cod_comuna
-save "$usedata/cot_pop.dta"
+save "$usedata/cot_pop.dta", replace
 
 import delimited "$rawdata/sick leaves\T8314.csv", clear varnames(1)
 gen date = daily(fecha_emision, "DMY")

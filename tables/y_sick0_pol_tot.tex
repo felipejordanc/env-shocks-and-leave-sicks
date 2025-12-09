@@ -1,16 +1,20 @@
 {
 \def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
-\begin{tabular}{l*{6}{c}}
+\begin{tabular}{l*{12}{c}}
 \toprule
-            &\multicolumn{1}{c}{t+7}&\multicolumn{1}{c}{t+7}&\multicolumn{1}{c}{t+7}&\multicolumn{1}{c}{t}&\multicolumn{1}{c}{t}&\multicolumn{1}{c}{t}\\
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}\\
 \midrule
-maxMP10     &     -0.0000         &                     &      0.0001         &     -0.0000         &                     &      0.0000         \\
-            &     (0.000)         &                     &     (0.000)         &     (0.000)         &                     &     (0.000)         \\
-maxMP25     &                     &     -0.0001\sym{**} &     -0.0002\sym{**} &                     &     -0.0000\sym{*}  &     -0.0000\sym{**} \\
-            &                     &     (0.000)         &     (0.000)         &                     &     (0.000)         &     (0.000)         \\
+meanMP10    &    -0.00009         &                     &     0.00213         &                     &                     &                     &    -0.00022         &                     &     0.00128         &                     &                     &                     \\
+            &    (0.0018)         &                     &    (0.0027)         &                     &                     &                     &    (0.0016)         &                     &    (0.0024)         &                     &                     &                     \\
+meanMP25    &                     &    -0.00114         &    -0.00469\sym{*}  &                     &                     &                     &                     &    -0.00099         &    -0.00315         &                     &                     &                     \\
+            &                     &    (0.0018)         &    (0.0024)         &                     &                     &                     &                     &    (0.0016)         &    (0.0020)         &                     &                     &                     \\
+maxMP10     &                     &                     &                     &    -0.00001         &                     &     0.00017         &                     &                     &                     &     0.00000         &                     &     0.00013         \\
+            &                     &                     &                     &    (0.0002)         &                     &    (0.0002)         &                     &                     &                     &    (0.0001)         &                     &    (0.0002)         \\
+maxMP25     &                     &                     &                     &                     &    -0.00019\sym{*}  &    -0.00036\sym{**} &                     &                     &                     &                     &    -0.00014\sym{*}  &    -0.00025\sym{**} \\
+            &                     &                     &                     &                     &    (0.0001)         &    (0.0001)         &                     &                     &                     &                     &    (0.0001)         &    (0.0001)         \\
 \midrule
-N           &    90728533         &   102929458         &    90597287         &    90728533         &   102929458         &    90597287         \\
-max         &                     &                     &                     &                     &                     &                     \\
+N           &    12610198         &    14240907         &    12600409         &    12610198         &    14240907         &    12600409         &    12610198         &    14240907         &    12600409         &    12610198         &    14240907         &    12600409         \\
+max         &                     &                     &                     &                     &                     &                     &                     &                     &                     &                     &                     &                     \\
 \bottomrule
 \end{tabular}
 }

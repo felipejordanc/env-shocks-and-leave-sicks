@@ -39,10 +39,10 @@ foreach f of local files {
 	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
 	gen date = monthly(periodo_renta, "YM")
 	format date %tm
-	drop if date < tm(2018m1)
+	drop if date < tm(2017m9)
 	drop periodo_renta
-	duplicates drop benef_enciptado, force
-	keep benef_enciptado
+	duplicates drop benef_enciptado date, force
+	keep benef_enciptado date
 	tempfile e_`i'
 	save `e_`i''
 	local ++i
@@ -51,11 +51,48 @@ use `e_1'
 forvalues y = 2/1000{
 	append using `e_`y''
 }
-duplicates drop benef_enciptado, force
+duplicates drop benef_enciptado date, force
+compress
 
+save "$usedata/benef_sampleyear.dta", replace // This one has to be deleted when making the replication file, it is just a checkpoint
+preserve 
+duplicates drop benef_enciptado, force
+keep benef_enciptado
 save "$usedata/benef_sample.dta", replace // This one has to be deleted when making the replication file, it is just a checkpoint
+
+preserve 
+duplicates drop benef_enciptado, force
+xtile pct_id = benef_enciptado, nq(10)
+drop date
+tempfile pct
+save `pct'
+restore
+merge n:1 benef_enciptado using `pct', nogenerate
+forvalues i=1/10{
+	preserve
+	local i = 2
+	keep if pct_id == `i'
+	gen present = 1
+	fillin benef_enciptado date
+	bysort benef_enciptado (date): gen lic_cond = present + present[_n-1] + present[_n-2] + present[_n-3]
+	replace lic_cond = lic_cond == 4
+	keep if lic_cond == 1
+	drop present _fillin lic_cond
+	tempfile pct_`i'
+	save `pct_`i''
+	restore
+}
+use `pct_1', clear
+forvalues y = 2/10{
+	append using `pct_`y''
+}
+duplicates drop benef_enciptado date, force
+drop if date == tm(2017m12)
 set seed 12345
-sample 1
+sample 0.02, by(date)
+duplicates drop benef_enciptado, force
+save "$usedata/benef_pct.dta", replace
+keep benef_enciptado
 save "$usedata/benef_sample1.dta", replace
 
 ************************************************
@@ -189,36 +226,7 @@ save "$usedata/Sick2.dta", replace
 *         5. Main data cleaning          *
 ************************************************
 
-clear all
-set obs 1
-gen date = mdy(1,1,2018)
-format date %td
-gen enddate = mdy(12,31,2024)
-format enddate %td
-expand enddate - date + 1
-replace date = date[1] + _n +-1
-drop enddate
-tempfile dates
-save `dates'
-
-use "$usedata/benef_sample1.dta", clear
-cross using `dates'
-sort benef_enciptado date
-gen leave = 0
-
-merge 1:1 benef_enciptado date using "$usedata/Sick.dta", nogenerate keep (1 3)
-gen enddate = .
-replace enddate = date + dias_otorgados - 1 if dias_otorgados < .
-bysort benef_enciptado (date): replace enddate = enddate[_n-1] if enddate[_n-1] > date[_n-1] & enddate[_n-1] != . & enddate == .
-replace leave = -98 if enddate != . & leave != 1
-drop enddate dias_otorgados
-*gen year = year(date)
-gen ym = mofd(date)
-format ym %tm
-save "$usedata/Main.dta", replace
-use "$usedata/Main.dta", clear
-
-
+do "C:\Users\black\Documents\GitHub\env-shocks-and-leave-sicks\scripts\1. Descriptive Stats.do"
 
 
 

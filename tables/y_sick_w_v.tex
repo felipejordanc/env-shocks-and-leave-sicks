@@ -1,0 +1,18 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{4}{c}}
+\toprule
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}\\
+\midrule
+max\_temp    &      0.0109\sym{***}&                     &      0.0082\sym{**} &                     \\
+            &     (0.004)         &                     &     (0.003)         &                     \\
+mean\_value  &                     &      0.0185\sym{***}&                     &      0.0149\sym{***}\\
+            &                     &     (0.005)         &                     &     (0.004)         \\
+Constant    &      2.7958\sym{***}&      2.6652\sym{***}&      2.1793\sym{***}&      2.0599\sym{***}\\
+            &     (0.096)         &     (0.109)         &     (0.081)         &     (0.093)         \\
+\midrule
+N           &    19713355         &    19713355         &    19713355         &    19713355         \\
+Mean        &                     &                     &                     &                     \\
+\bottomrule
+\end{tabular}
+}

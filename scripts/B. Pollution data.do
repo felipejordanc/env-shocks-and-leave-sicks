@@ -89,6 +89,8 @@ use "$usedata/pollution_comb.dta", clear
 cross using `dates'
 sort comb Estación date
 merge n:1 Estación date using "$usedata/pollution_data.dta", keep (1 3) nogenerate
+save "$usedata/pollution_comb_data.dta", replace
+
 foreach m in MP10 MP25 NOX O3{
 	preserve
 	bysort comb Estación: egen total_`m' = total(max_val`m')

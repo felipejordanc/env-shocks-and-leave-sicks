@@ -78,7 +78,6 @@ tempfile dates
 save `dates'
 
 use "$usedata/sample_id.dta", clear
-keep if id_all == 1
 cross using `dates'
 rename date year
 merge 1:1 benef_enciptado year using "$usedata/benef_sample_sick.dta", keep(1 3)
