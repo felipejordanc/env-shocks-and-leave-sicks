@@ -45,7 +45,12 @@ replace mean_val = . if min_val==. & max_val==. & mean_val==0
 reshape wide min_val max_val mean_val, i(Estación date) j(medida) string
 save "$usedata/pollution_data.dta", replace
 
-
+import excel "$rawdata\pollution\entidades_centros.xlsx", firstrow clear
+duplicates drop Entidad shp, force
+destring Pers, replace
+collapse (sum) Pers, by(cod_comuna)
+rename Pers total_pers
+save "$usedata/ent_com.dta", replace
 
 import excel "$rawdata\pollution\entidades_centros.xlsx", firstrow clear
 preserve
@@ -91,149 +96,133 @@ sort comb Estación date
 merge n:1 Estación date using "$usedata/pollution_data.dta", keep (1 3) nogenerate
 save "$usedata/pollution_comb_data.dta", replace
 
-foreach m in MP10 MP25 NOX O3{
+
+
+clear all
+set obs 1
+gen date = mdy(1,1,2018)
+format date %td
+gen enddate = mdy(12,31,2024)
+format enddate %td
+expand enddate - date + 1
+replace date = date[1] + _n - 1
+drop enddate
+tempfile dates
+save `dates'
+import excel "$rawdata\pollution\entidades_centros.xlsx", firstrow clear
+replace Entidad = Entidad + shp*1000000
+bysort Entidad (Estación): gen countid = _n
+drop if Estación=="." 
+drop shp
+reshape wide Estación weight, i(Entidad cod_comuna Pers) j(countid)
+gen comb = ""
+
+forvalues i = 1/7 {
+    replace comb = cond(comb=="", Estación`i', comb + " - " + Estación`i') if Estación`i' != ""
+}
+reshape long Estación weight, i( Entidad cod_comuna Pers comb) j(n)
+keep if Estación != ""
+xtile decile = cod_comuna, nq(20)
+forvalues q=1/20{
 	preserve
-	bysort comb Estación: egen total_`m' = total(max_val`m')
-	count if max_val`m' == . & total_`m' != 0
+	keep if decile == `q'
+	cross using `dates'
+	destring Pers, replace
+	merge n:1 Estación date using "$usedata/pollution_data.dta", keep (1 3) nogenerate
+	rename n countid
+	merge n:1 comb countid date using "$usedata/pollution_comb_data_R.dta", keep (1 3 4 5) nogenerate update 
+
+	foreach m in MP10 MP25 NOX O3{
+		gen weight_aux_`m' = weight if max_val`m' != .
+		bysort Entidad date: egen weight_`m' = total(weight_aux_`m')
+		replace weight_`m' = weight/weight_`m'
+		drop weight_aux_`m'
+	}
+	foreach m in MP10 MP25 NOX O3{
+		replace min_val`m' = min_val`m' * weight_`m'
+		replace max_val`m' = max_val`m' * weight_`m'
+		replace mean_val`m' = mean_val`m' * weight_`m'
+	}
+	collapse (sum) max_val* min_val* mean_val* (mean) Pers, by(comb Entidad cod_comuna date decile)	
+	foreach m in MP10 MP25 NOX O3{
+		replace min_val`m' = . if min_val`m'==0 & max_val`m'==0 & mean_val`m'==0
+		replace max_val`m' = . if min_val`m'==. & max_val`m'==0 & mean_val`m'==0
+		replace mean_val`m' = . if min_val`m'==. & max_val`m'==. & mean_val`m'==0
+	}
+	save "$usedata/pollution_comuna_`q'.dta", replace
 	restore
 }
-encode comb, gen(combnum)
-foreach m in MP10 MP25{
+forvalues q=1/20{
+	use "$usedata/pollution_comuna_1.dta", clear
+	compress
+	egen tag = tag(cod_comuna comb)
+	bys cod_comuna: egen distinct_comb = total(tag)
 	preserve
-	keep comb combnum Estación date min_val`m'-mean_val`m' n
-	reshape wide min_val`m'-mean_val`m' Estación, i(comb date) j(n)
-	forvalues i = 1/7{
-		bysort comb (date): egen maxn`i' = count(max_val`m'`i')
-	}
-	gen nmax = (maxn1 != 0) + (maxn2 != 0) + (maxn3 != 0) + (maxn4 != 0) + (maxn5 != 0) + (maxn6 != 0) + (maxn7 != 0) 
-	keep if nmax >1
-	drop maxn* 
-	forvalues i = 1/7 {
-		gen mon_`i'=.
-		gen days_both_`i'_`i'=0
-		forvalues j = 1/7 {
-			if `i' == `j' continue
-			gen both_`i'_`j' = !missing(max_val`m'`i') & !missing(max_val`m'`j')
-			by comb: egen days_both_`i'_`j' = total(both_`i'_`j')
-			replace mon_`i' = `j' if days_both_`i'_`j' > days_both_`i'_`i'
-			replace days_both_`i'_`i' = days_both_`i'_`j' if days_both_`i'_`j' > days_both_`i'_`i'
-		}
-		drop both* days*
-		
-	}
-		forvalues i = 1/7 {
-		gen y_`i'_`m'_mean = .
-		gen y_`i'_`m'_max = .
-		gen y_`i'_`m'_min = .
-		levelsof combnum, local(entidades)
-		foreach e of local entidades {
-			summ nmax if combnum == `e'
-			local max = r(mean)
-			if `i' > `max' continue 
-			summ mon_`i' if combnum == `e'
-			local mon = r(mean)
-			foreach n in min max mean{
-				qui reg `n'_val`m'`i' `n'_val`m'`mon' if combnum == `e'
-				predict y1_h if combnum == `e' & `n'_val`m'`i' == .
-				replace y_`i'_`m'_`n' = y1_h if y_`i'_`m'_`n' == .
-				drop y1_h
-			}
-			
-		}
-		replace min_val`m'`i'= y_`i'_`m'_min if min_val`m'`i' == .
-		replace max_val`m'`i'= y_`i'_`m'_max if max_val`m'`i' == .
-		replace mean_val`m'`i'= y_`i'_`m'_mean if mean_val`m'`i' == .
-	}
-	drop y_* mon_* combnum nmax
-	reshape long
-	drop if Estación == ""
-	drop n 
-	gen medida = "`m'"
-	tempfile cen_`m'
-	save `cen_`m''
+	keep if distinct_comb == 1
+	drop tag distinct_comb
+	save "$usedata/pollution_comuna_`q'_nocomb.dta", replace
 	restore
+	keep if distinct_comb > 1
+	drop tag distinct_comb
+	save "$usedata/pollution_comuna_`q'_comb.dta", replace
+
 }
 
-foreach m in NOX O3{
-	preserve
-	keep comb combnum Estación date min_val`m'-mean_val`m' n
-	bys comb (Estación date): gen dum = (Estación == "Cerrillos II")
-	bys comb (Estación date): egen dumm = max(dum)
-	drop if Estación == "Cerrillos II"
-	bys comb (Estación date): replace n = n-1 if dumm == 1
-	drop dum*
-	reshape wide min_val`m'-mean_val`m' Estación, i(comb date) j(n)
-	forvalues i = 1/6{
-		bysort comb (date): egen maxn`i' = count(max_val`m'`i')
-	}
-	gen nmax = (maxn1 != 0) + (maxn2 != 0) + (maxn3 != 0) + (maxn4 != 0) + (maxn5 != 0) + (maxn6 != 0) 
-	keep if nmax >1
-	drop maxn* 
-	forvalues i = 1/6 {
-		gen mon_`i'=.
-		gen days_both_`i'_`i'=0
-		forvalues j = 1/6 {
-			if `i' == `j' continue
-			gen both_`i'_`j' = !missing(max_val`m'`i') & !missing(max_val`m'`j')
-			by comb: egen days_both_`i'_`j' = total(both_`i'_`j')
-			replace mon_`i' = `j' if days_both_`i'_`j' > days_both_`i'_`i'
-			replace days_both_`i'_`i' = days_both_`i'_`j' if days_both_`i'_`j' > days_both_`i'_`i'
-		}
-		drop both* days*
-		
-	}
-		forvalues i = 1/6 {
-		gen y_`i'_`m'_mean = .
-		gen y_`i'_`m'_max = .
-		gen y_`i'_`m'_min = .
-		levelsof combnum, local(entidades)
-		foreach e of local entidades {
-			summ nmax if combnum == `e'
-			local max = r(mean)
-			if `i' > `max' continue 
-			summ mon_`i' if combnum == `e'
-			local mon = r(mean)
-			foreach n in min max mean{
-				qui reg `n'_val`m'`i' `n'_val`m'`mon' if combnum == `e'
-				predict y1_h if combnum == `e' & `n'_val`m'`i' == .
-				replace y_`i'_`m'_`n' = y1_h if y_`i'_`m'_`n' == .
-				drop y1_h
-			}
-			
-		}
-		replace min_val`m'`i'= y_`i'_`m'_min if min_val`m'`i' == .
-		replace max_val`m'`i'= y_`i'_`m'_max if max_val`m'`i' == .
-		replace mean_val`m'`i'= y_`i'_`m'_mean if mean_val`m'`i' == .
-	}
-	drop y_* mon_* combnum nmax
-	reshape long
-	drop if Estación == ""
-	drop n 
-	gen medida = "`m'"
-	tempfile cen_`m'
-	save `cen_`m''
-	restore
-}
-use `cen_MP10', clear
-merge 1:1 using `cen_MP25'
-append using `cen_NOX'
-append using `cen_O3'
-collapse (sum) min* max* mean*, by(comb date Estación)
 
-foreach m in MP10 MP25 NOX O3{
-	replace min_val`m' = . if min_val`m'==0 & max_val`m'==0 & mean_val`m'==0
-	replace max_val`m' = . if min_val`m'==. & max_val`m'==0 & mean_val`m'==0
-	replace mean_val`m' = . if min_val`m'==. & max_val`m'==. & mean_val`m'==0
+
+forvalues q=1/20{
+	use "$usedata/pollution_comuna_`q'_comb.dta", clear
+	merge m:1 cod_comuna using "$usedata/ent_com.dta", nogenerate keep(3)
+	gen pob_w = Pers/total_pers
+	
+	foreach m in MP10 MP25 NOX O3{
+		replace min_val`m' = min_val`m' * pob_w
+		replace max_val`m' = max_val`m' * pob_w
+		replace mean_val`m' = mean_val`m' * pob_w
+	}
+	collapse (sum) max_val* min_val* mean_val*, by(date cod_comuna)	
+	foreach m in MP10 MP25 NOX O3{
+		replace min_val`m' = . if min_val`m'==0 & max_val`m'==0 & mean_val`m'==0
+		replace max_val`m' = . if min_val`m'==. & max_val`m'==0 & mean_val`m'==0
+		replace mean_val`m' = . if min_val`m'==. & max_val`m'==. & mean_val`m'==0
+	}
+	
+	tempfile pol_`q'
+	save `pol_`q''
 }
-sort comb Estación date
-order comb Estación date min_valMP25 max_valMP25 mean_valMP25 min_valMP10 max_valMP10 mean_valMP10 min_valO3 max_valO3 mean_valO3 min_valNOX max_valNOX mean_valNOX
-foreach m in MP10 MP25 NOX O3{
-	preserve
-	bysort comb Estación: egen total_`m' = total(max_val`m')
-	count if max_val`m' == . & total_`m' != 0
-	restore
+
+use `pol_1', clear
+forvalues q=2/20{
+	append using `pol_`q''
 }
-save "$usedata/pollution_comb_data.dta", replace
+order cod_comuna date min_valMP10 mean_valMP10 max_valMP10 min_valMP25 mean_valMP25 max_valMP25 min_valNOX mean_valNOX max_valNOX min_valO3 mean_valO3 max_valO3
+sort cod_comuna date
+foreach m in MP10 MP25 NOX O3{
+	rename mean_val`m' mean`m'
+	rename max_val`m' max`m'
+	rename min_val`m' min`m'
+}
+save "$usedata/pollution_input.dta", replace
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

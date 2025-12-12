@@ -24,7 +24,7 @@ all_nonempty_subsets <- function(vec) {
 }
 
 # ============================================================
-# Fit lm on training set, test on test set
+# Fit lm on training set, test on test set, compute metrics including test-set adjusted R^2
 # ============================================================
 fit_and_eval <- function(formula, train_df, test_df) {
   model <- tryCatch(lm(formula, data = train_df), error = function(e) NULL)
@@ -37,18 +37,29 @@ fit_and_eval <- function(formula, train_df, test_df) {
 
   ss_res <- sum((y_test - preds)^2)
   ss_tot <- sum((y_test - mean(y_test, na.rm = TRUE))^2)
-  r2_test <- ifelse(ss_tot == 0, NA_real_, 1 - ss_res / ss_tot)
+  r2_test <- if (ss_tot == 0) NA_real_ else 1 - ss_res / ss_tot
   rmse_test <- sqrt(mean((y_test - preds)^2))
+
+  # Adjusted R^2 on test set:
+  p <- length(attr(stats::terms(formula), "term.labels"))
+  n_test <- nrow(test_df)
+
+  if (is.na(r2_test) || (n_test - p - 1) <= 0) {
+    r2_adj_test <- NA_real_
+  } else {
+    r2_adj_test <- 1 - (1 - r2_test) * ((n_test - 1) / (n_test - p - 1))
+  }
 
   list(
     model = model,
     r2_test = r2_test,
-    rmse_test = rmse_test
+    rmse_test = rmse_test,
+    r2_adj_test = r2_adj_test
   )
 }
 
 # ============================================================
-# Core function: impute one variable for one panelid
+# Core function: impute one variable for a single panelid
 # ============================================================
 impute_variable_for_one_panel <- function(
   panel_df,
@@ -57,7 +68,7 @@ impute_variable_for_one_panel <- function(
   date_col = "date",
   var,
   train_frac = 0.8,
-  metric = c("r2", "rmse"),
+  metric = c("r2", "rmse", "r2adj"),
   seed = 123,
   min_obs = 5
 ) {
@@ -69,7 +80,7 @@ impute_variable_for_one_panel <- function(
 
   max_count <- max(panel_df[[countid_col]], na.rm = TRUE)
 
-  # Skip if ≤ 1 monitor
+  # Skip if <= 1 monitor
   if (is.na(max_count) || max_count <= 1) {
     return(list(
       imputed_long = panel_df,
@@ -81,7 +92,7 @@ impute_variable_for_one_panel <- function(
     ))
   }
 
-  # Pivot to wide
+  # Pivot to wide (var_1, var_2, ...)
   pivoted <- panel_df %>%
     select(all_of(c(panelid_col, date_col, countid_col, var))) %>%
     pivot_wider(
@@ -93,13 +104,10 @@ impute_variable_for_one_panel <- function(
     arrange(.data[[date_col]])
 
   var_cols <- names(pivoted) %>% keep(~ str_starts(.x, paste0(var, "_")))
-  pivoted_imputed <- pivoted
-
+  pivoted_imputed <- pivoted    # will hold imputed y values
   metadata_list <- list()
 
-  # ============================================================
-  # Loop over each var_k (each monitor column becomes y)
-  # ============================================================
+  # Loop across each y_col (each monitor position)
   for (k in seq_along(var_cols)) {
     y_col <- var_cols[k]
     predictor_cols <- setdiff(var_cols, y_col)
@@ -114,6 +122,7 @@ impute_variable_for_one_panel <- function(
         formula = NA_character_,
         r2_test = NA_real_,
         rmse_test = NA_real_,
+        r2_adj_test = NA_real_,
         n_train = NA_integer_,
         n_test = NA_integer_,
         n_complete_best_model = 0L,
@@ -125,9 +134,7 @@ impute_variable_for_one_panel <- function(
       next
     }
 
-    # ============================================================
-    # Compute best single predictor statistics
-    # ============================================================
+    # Compute best single predictor stats
     single_counts <- map_int(predictor_cols, function(pred) {
       sum(!is.na(pivoted[[y_col]]) & !is.na(pivoted[[pred]]))
     })
@@ -140,12 +147,9 @@ impute_variable_for_one_panel <- function(
       is.na(pivoted[[y_col]]) & !is.na(pivoted[[best_single_pred]])
     )
 
-    # ============================================================
-    # Compute best subset countid statistics
-    # ============================================================
+    # Compute best subset count across all subsets (for metadata)
     subset_list <- all_nonempty_subsets(predictor_cols)
     subset_counts <- integer(length(subset_list))
-
     for (i in seq_along(subset_list)) {
       preds_i <- subset_list[[i]]
       subset_counts[i] <- sum(
@@ -153,17 +157,16 @@ impute_variable_for_one_panel <- function(
           apply(!is.na(pivoted %>% select(all_of(preds_i))), 1, all)
       )
     }
+    n_best_subset_countid_val <- if (length(subset_counts) == 0) 0L else max(subset_counts, na.rm = TRUE)
 
-    n_best_subset_countid_val <- max(subset_counts, na.rm = TRUE)
-
-    # ============================================================
-    # Model selection (ONLY subsets that can predict at least 1 missing)
-    # ============================================================
+    # ----------------------------
+    # Model selection: evaluate candidates via 80/20 splits,
+    # BUT only keep candidates that can predict at least 1 missing row
+    # ----------------------------
     candidate_info <- list()
 
     for (pred_set in subset_list) {
-
-      # Can this subset predict at least one missing y?
+      # can this subset predict at least one missing y?
       can_predict <- sum(
         is.na(pivoted[[y_col]]) &
           apply(!is.na(pivoted %>% select(all_of(pred_set))), 1, all)
@@ -181,9 +184,7 @@ impute_variable_for_one_panel <- function(
       train_df <- rsample::training(split)
       test_df <- rsample::testing(split)
 
-      formula <- as.formula(
-        paste0(y_col, " ~ ", paste(pred_set, collapse = " + "))
-      )
+      formula <- as.formula(paste0(y_col, " ~ ", paste(pred_set, collapse = " + ")))
 
       fe <- fit_and_eval(formula, train_df, test_df)
       if (is.null(fe)) next
@@ -191,28 +192,28 @@ impute_variable_for_one_panel <- function(
       candidate_info[[length(candidate_info) + 1]] <- list(
         predictors = pred_set,
         formula = formula,
-        model = fe$model,
+        model = fe$model,         # trained on train_df (for record)
         r2_test = fe$r2_test,
         rmse_test = fe$rmse_test,
+        r2_adj_test = fe$r2_adj_test,
         n_train = nrow(train_df),
         n_test = nrow(test_df),
         n_complete = nrow(complete_rows)
       )
-    }
+    } # end pred_set loop
 
-    # ============================================================
-    # If no usable subsets remain → skip with explicit metadata
-    # ============================================================
+    # If no usable subsets remain -> skip with explicit metadata
     if (length(candidate_info) == 0) {
       metadata_list[[y_col]] <- tibble(
         panelid = unique(panel_df[[panelid_col]]),
         var = var,
         y_col = y_col,
-        note = "skipped: no subset can predict at least 1 missing value",
+        note = "skipped: no subset can predict at least 1 missing value or insufficient rows",
         chosen_predictors = NA_character_,
         formula = NA_character_,
         r2_test = NA_real_,
         rmse_test = NA_real_,
+        r2_adj_test = NA_real_,
         n_train = NA_integer_,
         n_test = NA_integer_,
         n_complete_best_model = 0L,
@@ -224,75 +225,157 @@ impute_variable_for_one_panel <- function(
       next
     }
 
-    # ============================================================
-    # Select best model by metric
-    # ============================================================
+    # ----------------------------
+    # Sort candidate_info by metric
+    # ----------------------------
     cand_df <- tibble(candidate = candidate_info) %>%
       mutate(
         r2 = map_dbl(candidate, ~ .x$r2_test),
-        rmse = map_dbl(candidate, ~ .x$rmse_test)
+        rmse = map_dbl(candidate, ~ .x$rmse_test),
+        r2adj = map_dbl(candidate, ~ .x$r2_adj_test)
       )
 
-    best_idx <- if (metric == "r2") which.max(cand_df$r2) else which.min(cand_df$rmse)
-    best <- cand_df$candidate[[best_idx]]
-
-    # ============================================================
-    # Refit on all complete rows
-    # ============================================================
-    full_complete_rows <- pivoted %>%
-      select(all_of(c(y_col, best$predictors))) %>%
-      filter(if_all(everything(), ~ !is.na(.)))
-
-    n_complete_best_model_val <- nrow(full_complete_rows)
-
-    best_full_model <- tryCatch(
-      lm(best$formula, data = full_complete_rows),
-      error = function(e) NULL
-    )
-
-    # ============================================================
-    # Predict missing values
-    # ============================================================
-    pivoted_with_row <- pivoted %>% mutate(row_id = row_number())
-
-    to_pred <- pivoted_with_row %>%
-      filter(is.na(.data[[y_col]])) %>%
-      filter(if_all(all_of(best$predictors), ~ !is.na(.))) %>%
-      select(row_id, all_of(best$predictors))
-
-    n_predicted_val <- 0L
-    if (!is.null(best_full_model) && nrow(to_pred) > 0) {
-      preds <- tryCatch(predict(best_full_model, newdata = to_pred %>% select(-row_id)),
-                        error = function(e) rep(NA_real_, nrow(to_pred)))
-      pivoted_imputed[to_pred$row_id, y_col] <- preds
-      n_predicted_val <- length(preds)
+    if (metric == "r2") {
+      order_idx <- order(-cand_df$r2, na.last = TRUE)
+    } else if (metric == "r2adj") {
+      order_idx <- order(-cand_df$r2adj, na.last = TRUE)
+    } else {
+      order_idx <- order(cand_df$rmse, na.last = TRUE)
     }
 
-    # ============================================================
-    # Store metadata
-    # ============================================================
+    sorted_candidates <- cand_df$candidate[order_idx]
+
+    # ----------------------------
+    # Refit each candidate on all available complete rows for that subset
+    # and store the refitted model; keep the list in ranking order
+    # ----------------------------
+    refitted_candidates <- list()
+    for (ci in seq_along(sorted_candidates)) {
+      cinfo <- sorted_candidates[[ci]]
+      full_complete_rows <- pivoted %>%
+        select(all_of(c(y_col, cinfo$predictors))) %>%
+        filter(if_all(everything(), ~ !is.na(.)))
+
+      if (nrow(full_complete_rows) < 1) next
+
+      full_model <- tryCatch(
+        lm(cinfo$formula, data = full_complete_rows),
+        error = function(e) NULL
+      )
+
+      if (is.null(full_model)) next
+
+      refitted_candidates[[length(refitted_candidates) + 1]] <- list(
+        predictors = cinfo$predictors,
+        formula = cinfo$formula,
+        r2_test = cinfo$r2_test,
+        rmse_test = cinfo$rmse_test,
+        r2_adj_test = cinfo$r2_adj_test,
+        n_train = cinfo$n_train,
+        n_test = cinfo$n_test,
+        n_complete = nrow(full_complete_rows),
+        full_model = full_model
+      )
+    }
+
+    # If nothing refitted (should be rare), skip
+    if (length(refitted_candidates) == 0) {
+      metadata_list[[y_col]] <- tibble(
+        panelid = unique(panel_df[[panelid_col]]),
+        var = var,
+        y_col = y_col,
+        note = "skipped: no candidate refitted successfully",
+        chosen_predictors = NA_character_,
+        formula = NA_character_,
+        r2_test = NA_real_,
+        rmse_test = NA_real_,
+        r2_adj_test = NA_real_,
+        n_train = NA_integer_,
+        n_test = NA_integer_,
+        n_complete_best_model = 0L,
+        n_best_single_countid = n_best_single_countid_val,
+        n_best_subset_countid = n_best_subset_countid_val,
+        n_predicted = 0L,
+        n_predicted_best_single_countid = n_predicted_best_single_countid_val
+      )
+      next
+    }
+
+    # ----------------------------
+    # Greedy per-row imputation (CORRECTED):
+    # - Determine eligibility for each model using the ORIGINAL pivoted (non-imputed)
+    # - For each model in rank order, compute eligible row ids from pivoted
+    # - Remove row ids already imputed via imputed_flags
+    # - Predict those remaining eligible rows, write predictions to pivoted_imputed,
+    #   and mark only successfully predicted rows as imputed.
+    # ----------------------------
+    pivoted_with_row <- pivoted %>% mutate(row_id = row_number())  # original pivoted
+    imputed_flags <- rep(FALSE, nrow(pivoted_with_row))
+    total_predicted <- 0L
+
+    for (rc in seq_along(refitted_candidates)) {
+      rc_info <- refitted_candidates[[rc]]
+      preds_cols <- rc_info$predictors
+
+      # compute eligible row ids using ORIGINAL pivoted (NOT pivoted_imputed)
+      pred_avail_mat <- !is.na(pivoted %>% select(all_of(preds_cols)))
+      eligible_row_ids <- which(is.na(pivoted[[y_col]]) & apply(pred_avail_mat, 1, all))
+
+      # remove already imputed rows
+      eligible_row_ids <- eligible_row_ids[!imputed_flags[eligible_row_ids]]
+      if (length(eligible_row_ids) == 0) next
+
+      # prepare newdata from ORIGINAL pivoted for those row ids (predictors present there)
+      newdata <- pivoted %>% slice(eligible_row_ids) %>% select(all_of(preds_cols))
+
+      preds <- tryCatch(
+        predict(rc_info$full_model, newdata = newdata),
+        error = function(e) rep(NA_real_, nrow(newdata))
+      )
+
+      # assign predictions back into pivoted_imputed at the same row ids
+      pivoted_imputed[eligible_row_ids, y_col] <- preds
+
+      # mark successful predictions as imputed
+      success_idx <- which(!is.na(preds))
+      if (length(success_idx) > 0) {
+        imputed_row_ids <- eligible_row_ids[success_idx]
+        imputed_flags[imputed_row_ids] <- TRUE
+        total_predicted <- total_predicted + length(success_idx)
+      }
+    } # end per-model loop
+
+    # ----------------------------
+    # Collect metadata: top-ranked refitted candidate info
+    # ----------------------------
+    top_refitted <- refitted_candidates[[1]]
+    n_complete_best_model_val <- if (!is.null(top_refitted)) top_refitted$n_complete else 0L
+    top_r2 <- if (!is.null(top_refitted)) top_refitted$r2_test else NA_real_
+    top_rmse <- if (!is.null(top_refitted)) top_refitted$rmse_test else NA_real_
+    top_r2adj <- if (!is.null(top_refitted)) top_refitted$r2_adj_test else NA_real_
+    top_formula <- if (!is.null(top_refitted)) deparse(top_refitted$formula) else NA_character_
+
     metadata_list[[y_col]] <- tibble(
       panelid = unique(panel_df[[panelid_col]]),
       var = var,
       y_col = y_col,
-      chosen_predictors = paste(best$predictors, collapse = ","),
-      formula = deparse(best$formula),
-      r2_test = best$r2_test,
-      rmse_test = best$rmse_test,
-      n_train = best$n_train,
-      n_test = best$n_test,
+      chosen_predictors = NA_character_, # multiple models may be used per-row
+      formula = top_formula,
+      r2_test = top_r2,
+      rmse_test = top_rmse,
+      r2_adj_test = top_r2adj,
+      n_train = if (!is.null(top_refitted)) top_refitted$n_train else NA_integer_,
+      n_test = if (!is.null(top_refitted)) top_refitted$n_test else NA_integer_,
       n_complete_best_model = n_complete_best_model_val,
       n_best_single_countid = n_best_single_countid_val,
       n_best_subset_countid = n_best_subset_countid_val,
-      n_predicted = n_predicted_val,
+      n_predicted = total_predicted,
       n_predicted_best_single_countid = n_predicted_best_single_countid_val,
       note = NA_character_
     )
-  }
+  } # end y_col loop
 
-  # ============================================================
-  # Convert back to long format
-  # ============================================================
+  # Convert imputed wide back to long and join to original panel_df
   long_imputed <- pivoted_imputed %>%
     pivot_longer(
       cols = starts_with(paste0(var, "_")),
@@ -305,11 +388,9 @@ impute_variable_for_one_panel <- function(
   replaced <- panel_df %>%
     left_join(long_imputed, by = c(panelid_col, date_col, "countid")) %>%
     mutate(
-      !!var := if_else(
-        is.na(.data[[var]]) & !is.na(.data[[paste0(var, "_imputed")]]),
-        .data[[paste0(var, "_imputed")]],
-        .data[[var]]
-      )
+      !!var := if_else(is.na(.data[[var]]) & !is.na(.data[[paste0(var, "_imputed")]]),
+                       .data[[paste0(var, "_imputed")]],
+                       .data[[var]])
     ) %>%
     select(-all_of(paste0(var, "_imputed")))
 
@@ -320,7 +401,7 @@ impute_variable_for_one_panel <- function(
 }
 
 # ============================================================
-# Top-level wrapper for all vars and panelids
+# Top-level wrapper: run for many vars across all panelids
 # ============================================================
 impute_panelwise <- function(
   df,
@@ -329,7 +410,7 @@ impute_panelwise <- function(
   date_col = "date",
   vars,
   train_frac = 0.8,
-  metric = c("r2", "rmse"),
+  metric = c("r2", "rmse", "r2adj"),
   seed = 123,
   min_obs = 5,
   verbose = TRUE
@@ -361,10 +442,11 @@ impute_panelwise <- function(
     })
 
     results_per_var[[v]] <- map_dfr(imputed_panels, "imputed_long")
-    metadata_all[[v]] <- map_dfr(imputed_panels, "metadata") %>%
+    metadata_all[[v]]  <- map_dfr(imputed_panels, "metadata") %>%
       mutate(target_var = v)
   }
 
+  # Merge results for all vars into original df (replace only NA)
   df_final <- df
   for (v in vars) {
     df_var <- results_per_var[[v]] %>%
@@ -373,11 +455,9 @@ impute_panelwise <- function(
     df_final <- df_final %>%
       left_join(df_var, by = c(panelid_col, date_col, countid_col), suffix = c("", ".new")) %>%
       mutate(
-        !!v := if_else(
-          is.na(.data[[v]]) & !is.na(.data[[paste0(v, ".new")]]),
-          .data[[paste0(v, ".new")]],
-          .data[[v]]
-        )
+        !!v := if_else(is.na(.data[[v]]) & !is.na(.data[[paste0(v, ".new")]]),
+                       .data[[paste0(v, ".new")]],
+                       .data[[v]])
       ) %>%
       select(-all_of(paste0(v, ".new")))
   }
@@ -390,7 +470,7 @@ impute_panelwise <- function(
 
 # Suppose your dataset is df_raw with columns:
 # panelid (string), countid (integer), date (Date), and monitor vars m1..m10
-vars_to_impute <- c("max_valMP10", "max_valMP25", "max_valO3", "max_valNOX")
+vars_to_impute <- c("max_valMP25")
 
 res <- impute_panelwise(
   df = df,
@@ -399,7 +479,7 @@ res <- impute_panelwise(
   date_col = "date",
   vars = vars_to_impute,
   train_frac = 0.8,
-  metric = "rmse",    # or "rmse"
+  metric = "r2adj",    # or "rmse"
   seed = 2025,
   min_obs = 5,
   verbose = TRUE
@@ -410,8 +490,12 @@ df_imputed <- res$data
 df_imputed <- df_imputed %>%
      arrange(comb, countid, date) %>%
      select(comb, countid, date, all_of(vars_to_impute))
+meta <- res$metadata
+
+
+
 df <- df %>%
-     arrange(comb, countid, date) %>%
+     arrange(comb, date, countid) %>%
      select(comb, countid, date, all_of(vars_to_impute))
      
      
@@ -444,5 +528,7 @@ count_missing_valid_pairs <- function(df, vars, panelid = "comb", countid = "cou
 missing_per_var2 <- count_missing_valid_pairs(df, vars_to_impute)
 missing_per_var <- count_missing_valid_pairs(df_imputed, vars_to_impute)
 
-# metadata about chosen models and counts
-meta <- res$metadata
+
+write_dta(df_imputed, "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate/pollution_comb_data_R.dta")
+
+

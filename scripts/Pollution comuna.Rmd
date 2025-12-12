@@ -1,0 +1,384 @@
+
+library(haven)
+df <- read_dta("C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate/pollution_comuna_14_comb.dta")
+df <- df %>% 
+  rename(countid = Entidad)
+  df <- df %>% 
+  rename(panelid_col = comb)
+# ============================================================
+# LOAD LIBRARIES
+# ============================================================
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(rsample)
+library(tibble)
+
+# ============================================================
+# SUBSET GENERATOR: ALL NON-EMPTY SUBSETS
+# ============================================================
+all_nonempty_subsets <- function(vec) {
+  if (length(vec) == 0) return(list())
+  unlist(
+    lapply(seq_along(vec), function(k) combn(vec, k, simplify = FALSE)),
+    recursive = FALSE
+  )
+}
+
+# ============================================================
+# TRAIN/TEST METRIC FUNCTION
+# ============================================================
+fit_and_eval <- function(formula, train_df, test_df) {
+
+  model <- tryCatch(lm(formula, data = train_df), error = function(e) NULL)
+  if (is.null(model)) return(NULL)
+
+  preds <- tryCatch(predict(model, newdata = test_df), error = function(e) NULL)
+  if (is.null(preds)) return(NULL)
+
+  y_test <- test_df[[all.vars(formula)[1]]]
+
+  ss_res <- sum((y_test - preds)^2)
+  ss_tot <- sum((y_test - mean(y_test, na.rm = TRUE))^2)
+
+  r2_test <- if (ss_tot == 0) NA_real_ else 1 - ss_res / ss_tot
+  rmse_test <- sqrt(mean((y_test - preds)^2))
+
+  p <- length(attr(terms(formula), "term.labels"))
+  n_test <- nrow(test_df)
+
+  r2_adj_test <- if (is.na(r2_test) || (n_test - p - 1) <= 0) {
+    NA_real_
+  } else {
+    1 - (1 - r2_test) * ((n_test - 1) / (n_test - p - 1))
+  }
+
+  list(
+    model = model,
+    r2_test = r2_test,
+    rmse_test = rmse_test,
+    r2_adj_test = r2_adj_test
+  )
+}
+
+# ============================================================
+# CORE IMPUTATION: ONE COMUNA
+# ============================================================
+impute_one_comuna <- function(df_comuna,
+                              y_vars,
+                              panelid_col = "panelid",
+                              countid_col = "countid",
+                              date_col = "date",
+                              train_frac = 0.8,
+                              metric = c("r2", "rmse", "r2adj"),
+                              seed = 123,
+                              min_obs = 5) {
+
+  metric <- match.arg(metric)
+  set.seed(seed)
+
+  comuna_id <- unique(df_comuna$cod_comuna)
+  message("\n=== Processing comuna: ", comuna_id, " ===")
+
+  # ------------------------------------------------------------
+  # Define panels and assign P1, P2, P3...
+  # ------------------------------------------------------------
+  panels <- sort(unique(df_comuna[[panelid_col]]))
+  panel_index <- seq_along(panels)
+
+  safe_panel_map <- tibble(
+    panelid = panels,
+    pcode   = paste0("P", panel_index)  # e.g. P1, P2, P3
+  )
+
+  # Map panel -> predictor column names per countid
+  pred_cols_per_panel <- lapply(panels, function(p) {
+    df_panel <- df_comuna[df_comuna[[panelid_col]] == p, ]
+    counts <- unique(df_panel[[countid_col]])
+    pcode <- safe_panel_map$pcode[safe_panel_map$panelid == p]
+    paste0(pcode, "_", counts)
+  })
+  names(pred_cols_per_panel) <- panels
+
+  df_out <- df_comuna
+  metadata_all <- list()
+
+  # ============================================================
+  # LOOP OVER Y VARIABLES (SEQUENTIAL IMPUTATION)
+  # ============================================================
+  for (y_var in y_vars) {
+
+    message("Imputing variable: ", y_var)
+
+    df_work <- df_comuna
+
+    # ============================================================
+    # LOOP OVER PANELS
+    # ============================================================
+    for (panel_target in panels) {
+
+      message("  Target panel: ", panel_target)
+
+      df_target_panel <- df_work[df_work[[panelid_col]] == panel_target, ]
+      target_countids <- unique(df_target_panel[[countid_col]])
+
+      # ============================================================
+      # LOOP OVER COUNTIDS WITHIN TARGET PANEL
+      # ============================================================
+      for (cid in target_countids) {
+
+        message("    → Countid: ", cid)
+
+        # ---------------------------
+        # Target series Y
+        # ---------------------------
+        y_df <- df_work %>%
+          filter(.data[[panelid_col]] == panel_target,
+                 .data[[countid_col]] == cid) %>%
+          select(cod_comuna, date = all_of(date_col), y_value = all_of(y_var))
+
+        y_name <- paste0(
+          safe_panel_map$pcode[safe_panel_map$panelid == panel_target],
+          "_", cid, "_Y"
+        )
+
+        y_df <- y_df %>% rename(!!y_name := y_value)
+
+        # Panels available for prediction
+        other_panels <- setdiff(panels, panel_target)
+        panel_subsets <- all_nonempty_subsets(other_panels)
+
+        candidate_info <- list()
+
+        # ============================================================
+        # MODEL SELECTION OVER PANEL SUBSETS
+        # ============================================================
+        for (subset_panels in panel_subsets) {
+
+          df_model <- y_df
+
+          # ----------------------------------------------------------
+          # JOIN EACH PREDICTOR PANEL
+          # ----------------------------------------------------------
+          for (p in subset_panels) {
+
+            p_original <- p
+            pcode <- safe_panel_map$pcode[safe_panel_map$panelid == p_original]
+
+            # raw predictor rows
+            df_pred_raw <- df_work %>%
+              filter(.data[[panelid_col]] == p_original) %>%
+              select(
+                cod_comuna,
+                date = all_of(date_col),
+                countid,
+                value = all_of(y_var)
+              )
+
+            # spread into predictor columns Pk_countid
+            df_pred <- df_pred_raw %>%
+              mutate(pred_name = paste0(pcode, "_", countid)) %>%
+              select(cod_comuna, date, pred_name, value) %>%
+              pivot_wider(
+                names_from  = pred_name,
+                values_from = value
+              )
+
+            # left-join predictor columns
+            df_model <- df_model %>%
+              left_join(df_pred, by = c("cod_comuna", "date"))
+          }
+
+          # get predictor names
+          pred_cols <- unlist(pred_cols_per_panel[subset_panels], use.names = FALSE)
+
+          df_use <- df_model %>%
+            select(all_of(c(y_name, pred_cols)))
+
+          df_complete <- df_use %>% 
+            filter(if_all(everything(), ~ !is.na(.)))
+
+          if (nrow(df_complete) < min_obs) next
+
+          split <- initial_split(df_complete, prop = train_frac)
+          train_df <- training(split)
+          test_df  <- testing(split)
+
+          formula <- as.formula(
+            paste0(y_name, " ~ ", paste(pred_cols, collapse = " + "))
+          )
+
+          fe <- fit_and_eval(formula, train_df, test_df)
+          if (is.null(fe)) next
+
+          candidate_info[[length(candidate_info) + 1]] <- list(
+            predictors = pred_cols,
+            formula = formula,
+            r2_test = fe$r2_test,
+            rmse_test = fe$rmse_test,
+            r2_adj_test = fe$r2_adj_test,
+            n_train = nrow(train_df),
+            n_test = nrow(test_df)
+          )
+        }
+
+        # No usable model → skip
+        if (length(candidate_info) == 0) next
+
+        # Rank models
+        cand_df <- tibble(candidate = candidate_info) %>%
+          mutate(
+            r2 = map_dbl(candidate, ~ .x$r2_test),
+            rmse = map_dbl(candidate, ~ .x$rmse_test),
+            r2adj = map_dbl(candidate, ~ .x$r2_adj_test)
+          )
+
+        order_idx <- switch(
+          metric,
+          "r2" = order(-cand_df$r2),
+          "rmse" = order(cand_df$rmse),
+          "r2adj" = order(-cand_df$r2adj)
+        )
+
+        top <- cand_df$candidate[[order_idx[1]]]
+
+        # ----------------------------------------------------------
+        # REFIT ON FULL COMPLETE ROWS
+        # ----------------------------------------------------------
+        df_model <- y_df
+
+        # Join only predictor panels used in winning model
+        p_used <- unique(stringr::str_extract(top$predictors, "^P[0-9]+"))
+        panels_used <- safe_panel_map$panelid[match(p_used, safe_panel_map$pcode)]
+
+        for (p_original in panels_used) {
+
+          pcode <- safe_panel_map$pcode[safe_panel_map$panelid == p_original]
+
+          df_pred_raw <- df_work %>%
+            filter(.data[[panelid_col]] == p_original) %>%
+            select(
+              cod_comuna,
+              date = all_of(date_col),
+              countid,
+              value = all_of(y_var)
+            )
+
+          df_pred <- df_pred_raw %>%
+            mutate(pred_name = paste0(pcode, "_", countid)) %>%
+            select(cod_comuna, date, pred_name, value) %>%
+            pivot_wider(
+              names_from  = pred_name,
+              values_from = value
+            )
+
+          df_model <- df_model %>%
+            left_join(df_pred, by = c("cod_comuna", "date"))
+        }
+
+        df_use <- df_model %>% select(all_of(c(y_name, top$predictors)))
+        df_complete <- df_use %>% filter(if_all(everything(), ~ !is.na(.)))
+
+        final_model <- lm(top$formula, data = df_complete)
+
+        # ----------------------------------------------------------
+        # IMPUTE MISSING VALUES
+        # ----------------------------------------------------------
+        df_missing <- df_model %>% filter(is.na(.data[[y_name]]))
+
+        if (nrow(df_missing) > 0) {
+          newdata <- df_missing %>% select(all_of(top$predictors))
+          preds_new <- predict(final_model, newdata = newdata)
+
+          df_out[df_out[[panelid_col]] == panel_target &
+                   df_out[[countid_col]] == cid &
+                   is.na(df_out[[y_var]]),
+                 y_var] <- preds_new
+        }
+
+        # Save metadata
+        metadata_all[[length(metadata_all) + 1]] <- tibble(
+          cod_comuna = comuna_id,
+          y_var = y_var,
+          target_panel = panel_target,
+          countid = cid,
+          formula = deparse(top$formula),
+          r2_test = top$r2_test,
+          rmse_test = top$rmse_test,
+          r2_adj_test = top$r2_adj_test,
+          n_train = top$n_train,
+          n_test = top$n_test,
+          n_predictors = length(top$predictors)
+        )
+      }
+    }
+  }
+
+  list(
+    data = df_out,
+    metadata = bind_rows(metadata_all)
+  )
+}
+
+# ============================================================
+# TOP-LEVEL WRAPPER
+# ============================================================
+impute_cod_comuna <- function(df,
+                              y_vars,
+                              cod_comuna_col = "cod_comuna",
+                              panelid_col = "panelid",
+                              countid_col = "countid",
+                              date_col = "date",
+                              train_frac = 0.8,
+                              metric = "r2adj",
+                              seed = 123,
+                              min_obs = 5) {
+
+  comuna_groups <- df %>%
+    group_by(.data[[cod_comuna_col]]) %>%
+    group_split()
+
+  results <- map(
+    comuna_groups,
+    ~ impute_one_comuna(
+      df_comuna = .x,
+      y_vars = y_vars,
+      panelid_col = panelid_col,
+      countid_col = countid_col,
+      date_col = date_col,
+      train_frac = train_frac,
+      metric = metric,
+      seed = seed,
+      min_obs = min_obs
+    )
+  )
+
+  list(
+    data     = map_dfr(results, "data"),
+    metadata = map_dfr(results, "metadata")
+  )
+}
+
+
+
+
+
+
+vars_to_impute <- c("max_valMP25")
+
+res <- impute_cod_comuna(
+  df = df,
+  y_vars = vars_to_impute,
+  cod_comuna_col = "cod_comuna",
+  panelid_col = "panelid_col",
+  countid_col = "countid",
+  date_col = "date",
+  train_frac = 0.8,
+  metric = "r2adj",
+  seed = 2025,
+  min_obs = 5
+)
+
+df_imputed <- res$data
+metadata <- res$metadata
