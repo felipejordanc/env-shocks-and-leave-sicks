@@ -29,13 +29,13 @@ if "`c(username)'" == "black"{
 ************************************************
 *       1. Random sample                       *
 ************************************************
-foreach v in pr tmin tmax{
-	import delimited "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide/`v'_rural.csv", varnames(1) clear
+foreach v in tmax{
+	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_rural2.csv", varnames(1) clear
 	drop if entity == 16180 |entity == 16437 |entity == 16578 |entity == 16692 |entity == 16693 |entity == 16694 |entity == 16695 |entity == 16696 |entity == 16697 |entity == 16698 |entity == 16699 |entity == 16700 |entity == 16701 |entity == 16702 |entity == 16703 |entity == 27600 |entity == 28120 |entity == 28197 
 	gen shp = "ru"
 	tempfile rur
 	save `rur'
-	import delimited "C:\Users\black\Dropbox\Proyectos\microdatos_manzana\Centroide/`v'_manzana.csv", varnames(1) clear
+	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_manzana2.csv", varnames(1) clear
 	drop if entity >= 91858 & entity <= 91870
 	drop if entity >= 92890 & entity <= 92914
 	drop if entity == 91928 | entity == 92103 | entity == 92492 | entity == 92505
@@ -55,7 +55,7 @@ foreach v in pr tmin tmax{
 	gen pob_w = total_pers/total_pop
 	replace value = value*pob_w
 	collapse (sum) value, by(date cod_comuna)
-	save "$usedata/climate_`v'.dta", replace
+	save "$usedata/climate_`v'2.dta", replace
 	clear all
 }
 

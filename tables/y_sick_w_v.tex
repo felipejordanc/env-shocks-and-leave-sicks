@@ -1,18 +1,18 @@
 {
 \def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
-\begin{tabular}{l*{4}{c}}
+\begin{tabular}{l*{8}{c}}
 \toprule
-            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}\\
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Reactive}&\multicolumn{1}{c}{Reactive}&\multicolumn{1}{c}{Anticipated}&\multicolumn{1}{c}{Anticipated}\\
 \midrule
-max\_temp    &      0.0109\sym{***}&                     &      0.0082\sym{**} &                     \\
-            &     (0.004)         &                     &     (0.003)         &                     \\
-mean\_value  &                     &      0.0185\sym{***}&                     &      0.0149\sym{***}\\
-            &                     &     (0.005)         &                     &     (0.004)         \\
-Constant    &      2.7958\sym{***}&      2.6652\sym{***}&      2.1793\sym{***}&      2.0599\sym{***}\\
-            &     (0.096)         &     (0.109)         &     (0.081)         &     (0.093)         \\
+tmax        &      0.0043\sym{**} &                     &      0.0029\sym{**} &                     &      0.0026\sym{*}  &                     &      0.0021\sym{**} &                     \\
+            &     (0.002)         &                     &     (0.001)         &                     &     (0.001)         &                     &     (0.001)         &                     \\
+tmax\_mean   &                     &      0.0059\sym{**} &                     &      0.0042\sym{***}&                     &      0.0038\sym{**} &                     &      0.0026\sym{**} \\
+            &                     &     (0.002)         &                     &     (0.001)         &                     &     (0.002)         &                     &     (0.001)         \\
+Constant    &      0.8786\sym{***}&      0.8569\sym{***}&      0.5316\sym{***}&      0.5118\sym{***}&      0.6699\sym{***}&      0.6526\sym{***}&      0.2516\sym{***}&      0.2474\sym{***}\\
+            &     (0.043)         &     (0.049)         &     (0.029)         &     (0.031)         &     (0.033)         &     (0.041)         &     (0.021)         &     (0.022)         \\
 \midrule
-N           &    19713355         &    19713355         &    19713355         &    19713355         \\
-Mean        &                     &                     &                     &                     \\
+N           &    19815612         &    19815612         &    19815612         &    19815612         &    19821638         &    19821638         &    19818247         &    19818247         \\
+Mean        &                     &                     &                     &                     &                     &                     &                     &                     \\
 \bottomrule
 \end{tabular}
 }

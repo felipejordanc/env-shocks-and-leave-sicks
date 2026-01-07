@@ -123,7 +123,7 @@ forvalues i = 1/7 {
 reshape long Estación weight, i( Entidad cod_comuna Pers comb) j(n)
 keep if Estación != ""
 xtile decile = cod_comuna, nq(20)
-forvalues q=1/20{
+forvalues q=13/20{
 	preserve
 	keep if decile == `q'
 	cross using `dates'
@@ -131,7 +131,7 @@ forvalues q=1/20{
 	merge n:1 Estación date using "$usedata/pollution_data.dta", keep (1 3) nogenerate
 	rename n countid
 	merge n:1 comb countid date using "$usedata/pollution_comb_data_R.dta", keep (1 3 4 5) nogenerate update 
-
+	compress
 	foreach m in MP10 MP25 NOX O3{
 		gen weight_aux_`m' = weight if max_val`m' != .
 		bysort Entidad date: egen weight_`m' = total(weight_aux_`m')
@@ -153,25 +153,30 @@ forvalues q=1/20{
 	restore
 }
 forvalues q=1/20{
-	use "$usedata/pollution_comuna_1.dta", clear
+	use "$usedata/pollution_comuna_`q'.dta", clear
 	compress
 	egen tag = tag(cod_comuna comb)
 	bys cod_comuna: egen distinct_comb = total(tag)
 	preserve
 	keep if distinct_comb == 1
 	drop tag distinct_comb
-	save "$usedata/pollution_comuna_`q'_nocomb.dta", replace
+	tempfile pol_`q'
+	save `pol_`q''
 	restore
 	keep if distinct_comb > 1
 	drop tag distinct_comb
-	save "$usedata/pollution_comuna_`q'_comb.dta", replace
+	save "$usedata/pollution_comuna_`q'.dta", replace
 
 }
+use `pol_1', clear
+forvalues q=2/20{
+	append using `pol_`q''
+}
+compress
+save "$usedata/pollution_comuna_21.dta", replace
 
-
-
-forvalues q=1/20{
-	use "$usedata/pollution_comuna_`q'_comb.dta", clear
+forvalues q=1/21{
+	use "$usedata/pollution_comuna_`q'.dta", clear
 	merge m:1 cod_comuna using "$usedata/ent_com.dta", nogenerate keep(3)
 	gen pob_w = Pers/total_pers
 	
@@ -190,11 +195,11 @@ forvalues q=1/20{
 	tempfile pol_`q'
 	save `pol_`q''
 }
-
 use `pol_1', clear
-forvalues q=2/20{
+forvalues q=2/21{
 	append using `pol_`q''
 }
+
 order cod_comuna date min_valMP10 mean_valMP10 max_valMP10 min_valMP25 mean_valMP25 max_valMP25 min_valNOX mean_valNOX max_valNOX min_valO3 mean_valO3 max_valO3
 sort cod_comuna date
 foreach m in MP10 MP25 NOX O3{

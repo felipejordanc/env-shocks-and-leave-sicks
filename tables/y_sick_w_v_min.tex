@@ -1,0 +1,18 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{8}{c}}
+\toprule
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Reactive}&\multicolumn{1}{c}{Reactive}&\multicolumn{1}{c}{Anticipated}&\multicolumn{1}{c}{Anticipated}\\
+\midrule
+tmin        &      0.0031         &                     &      0.0017         &                     &      0.0024         &                     &      0.0004         &                     \\
+            &     (0.002)         &                     &     (0.002)         &                     &     (0.002)         &                     &     (0.001)         &                     \\
+tmin\_mean   &                     &      0.0059\sym{**} &                     &      0.0020         &                     &      0.0069\sym{***}&                     &     -0.0011         \\
+            &                     &     (0.003)         &                     &     (0.002)         &                     &     (0.002)         &                     &     (0.001)         \\
+Constant    &      0.9650\sym{***}&      0.9371\sym{***}&      0.5922\sym{***}&      0.5863\sym{***}&      0.7209\sym{***}&      0.6810\sym{***}&      0.3004\sym{***}&      0.3104\sym{***}\\
+            &     (0.012)         &     (0.023)         &     (0.008)         &     (0.015)         &     (0.011)         &     (0.018)         &     (0.007)         &     (0.011)         \\
+\midrule
+N           &    19815612         &    19815612         &    19815612         &    19815612         &    19821638         &    19821638         &    19818247         &    19818247         \\
+Mean        &                     &                     &                     &                     &                     &                     &                     &                     \\
+\bottomrule
+\end{tabular}
+}
