@@ -27,15 +27,15 @@ if "`c(username)'" == "black"{
 	global tables "$path/tables"
 	
 ************************************************
-*       1. Random sample                       *
+*       1. Climate raw database                *
 ************************************************
-foreach v in tmax{
-	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_rural2.csv", varnames(1) clear
+foreach v in tmax tmin pr{
+	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_rural.csv", varnames(1) clear
 	drop if entity == 16180 |entity == 16437 |entity == 16578 |entity == 16692 |entity == 16693 |entity == 16694 |entity == 16695 |entity == 16696 |entity == 16697 |entity == 16698 |entity == 16699 |entity == 16700 |entity == 16701 |entity == 16702 |entity == 16703 |entity == 27600 |entity == 28120 |entity == 28197 
 	gen shp = "ru"
 	tempfile rur
 	save `rur'
-	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_manzana2.csv", varnames(1) clear
+	import delimited "E:\Sick leave\microdatos_manzana\Centroide/`v'_manzana.csv", varnames(1) clear
 	drop if entity >= 91858 & entity <= 91870
 	drop if entity >= 92890 & entity <= 92914
 	drop if entity == 91928 | entity == 92103 | entity == 92492 | entity == 92505
@@ -55,41 +55,123 @@ foreach v in tmax{
 	gen pob_w = total_pers/total_pop
 	replace value = value*pob_w
 	collapse (sum) value, by(date cod_comuna)
-	save "$usedata/climate_`v'2.dta", replace
+	save "$usedata/climate_`v'.dta", replace
 	clear all
 }
 
 
-local mydir "C:\Users\black\Documents\Plantillas personalizadas de Office\OneDrive_6_7-11-2025_0_100\LT8696_TEST_999_20250710\"
-local files : dir "`mydir'" files "*.txt"
-local i = 1
-foreach f of local files {
-	import delimited "`mydir'\`f'", varnames(1) clear
-	tostring periodo_renta, replace
-	replace periodo_renta = substr(periodo_renta,1,4) + "m" + substr(periodo_renta,5,2)
-	gen date = monthly(periodo_renta, "YM")
-	format date %tm
-	drop if date < tm(2018m1)
-	gen year = year(dofm(date))
-	keep codigo_cotizante codigo_empleador year
-	duplicates drop codigo_cotizante codigo_empleador year, force
-	tempfile e_`i'
-	save `e_`i''
-	local ++i
+************************************************
+*      2. Climate monthly database             *
+************************************************
+set maxvar 32000
+use "$usedata/climate_tmax.dta", clear
+rename date date_td
+gen date = mofd(date_td)
+format date %tm
+collapse (max) value, by(cod_comuna date)
+replace value = round(value)
+save "$usedata/tmax_reg.dta", replace
+
+************************************************
+*      3. Climate daily database             *
+************************************************
+
+use "$usedata/climate_tmax.dta", clear
+rename value tmax
+merge 1:1 cod_comuna date using "$usedata/climate_tmin.dta"
+rename value tmin
+collapse (max) tmax (min) tmin, by(cod_comuna date)
+replace tmax = round(tmax)
+replace tmin = round(tmin)
+
+save "$usedata/tmax_w.dta", replace
+************************************************
+*      4. Climate bin database             *
+************************************************
+
+
+
+
+clear all
+set obs 1
+gen date = mdy(1,1,2018)
+format date %td
+gen enddate = mdy(12,31,2024)
+format enddate %td
+expand enddate - date + 1
+replace date = date[1] + _n +-1
+drop enddate
+tempfile dates
+save `dates'
+
+use "$usedata/sample_id.dta", clear
+set seed 12345
+*sample 80
+cross using `dates'
+sort benef_enciptado date
+compress
+gen year = year(date)
+merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
+merge n:1 cod_comuna date using "$usedata/tmax_w.dta", keep(1 3) nogenerate
+gen week = wofd(date)
+format week %tw
+compress
+preserve
+gen tmin_dum_0 = tmin <0
+gen tmin_dum_20 = tmin >19 & tmin != .
+gen tmin_mean = tmin
+forvalues i=0/9{
+	gen tmin_dum_`=`i'*2'_`=`i'*2+1' = 0
+	replace tmin_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmin == `i'*2 | tmin == `i'*2 + 1
 }
-use `e_1'
-forvalues y = 2/1000{
-	append using `e_`y''
-}
-duplicates drop codigo_cotizante codigo_empleador year, force
 gen suma = 1
-collapse (sum) suma, by(codigo_empleador year)
-gen fsize = 1
-replace fsize = 2 if suma >=50 & suma <= 199
-replace fsize = 3 if suma >=200
-label define lab 1 "Small" 2 "Medium" 3 "Large"
-label value fsize lab
+compress
+collapse (sum) tmin_dum* suma (min) tmin (mean) tmin_mean, by(benef_enciptado week)
+forvalues i=0/9{
+	replace tmin_dum_`=`i'*2'_`=`i'*2+1' = tmin_dum_`=`i'*2'_`=`i'*2+1'/suma 
+}
+drop tmin_dum_8_9
+
+replace tmin_dum_0 = tmin_dum_0/ suma
+replace tmin_dum_20 = tmin_dum_20/suma
 drop suma
-save "$usedata/firm_size.dta", replace
+compress
+rename week date
+save "$usedata/tmin_dum.dta", replace
+restore
+gen tmax_dum_9 = tmax <10
+gen tmax_dum_38 = tmax >37 & tmax != .
+gen tmax_mean = tmax
+
+forvalues i=5/18{
+	gen tmax_dum_`=`i'*2'_`=`i'*2+1' = 0
+	replace tmax_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmax == `i'*2 | tmax == `i'*2 + 1
+}
+gen suma = 1
+compress
+collapse (sum) tmax_dum* suma (max) tmax (mean) tmax_mean, by(benef_enciptado week)
+forvalues i=5/18{
+	replace tmax_dum_`=`i'*2'_`=`i'*2+1' = tmax_dum_`=`i'*2'_`=`i'*2+1'/suma
+}
+drop tmax_dum_20_21
+replace tmax_dum_9 = tmax_dum_9/ suma
+replace tmax_dum_38 = tmax_dum_38/suma
+compress
+rename week date
+save "$usedata/tmax_dum.dta", replace
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

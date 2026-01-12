@@ -278,7 +278,7 @@ compress
 rename week date
 replace MP10ex_max = MP10ex_max/suma
 replace MP25ex_max = MP25ex_max/suma
-drop suma
+
 save "$usedata/pollution_merge.dta", replace
 
 

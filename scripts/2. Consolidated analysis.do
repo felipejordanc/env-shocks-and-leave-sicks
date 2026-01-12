@@ -29,23 +29,7 @@ if "`c(username)'" == "black"{
 ************************************************
 *       1. Regressions                 *
 ************************************************
-set maxvar 32000
-use "$usedata/climate_tmax.dta", clear
-rename date date_td
-gen date = mofd(date_td)
-format date %tm
-collapse (max) value, by(cod_comuna date)
-replace value = round(value)
-save "$usedata/tmax_reg.dta", replace
-use "$usedata/climate_tmax.dta", clear
-rename value tmax
-merge 1:1 cod_comuna date using "$usedata/climate_tmin.dta"
-rename value tmin
-collapse (max) tmax (min) tmin, by(cod_comuna date)
-replace tmax = round(tmax)
-replace tmin = round(tmin)
 
-save "$usedata/tmax_w.dta", replace
 clear all
 set obs 1
 gen start = ym(2018, 1)
@@ -98,73 +82,6 @@ eststo model3: reghdfe y_3 dum* if codigo_empleador == 1, absorb(date cod_comuna
 esttab model1 model2 model3 using "${tables}/y_tot_ cond.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(dum*) b(%9.4f) se(%9.3f) stats(N Mean,fmt("%9.0fc" "%9.4fc")) mtitles("t+1" "t+2" "t+3") nonotes
 
 
-clear all
-set obs 1
-gen date = mdy(1,1,2018)
-format date %td
-gen enddate = mdy(12,31,2024)
-format enddate %td
-expand enddate - date + 1
-replace date = date[1] + _n +-1
-drop enddate
-tempfile dates
-save `dates'
-
-use "$usedata/sample_id.dta", clear
-set seed 12345
-*sample 80
-cross using `dates'
-sort benef_enciptado date
-compress
-gen year = year(date)
-merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
-merge n:1 cod_comuna date using "$usedata/tmax_w.dta", keep(1 3) nogenerate
-gen week = wofd(date)
-format week %tw
-compress
-preserve
-gen tmin_dum_0 = tmin <0
-gen tmin_dum_20 = tmin >19 & tmin != .
-
-forvalues i=0/9{
-	gen tmin_dum_`=`i'*2'_`=`i'*2+1' = 0
-	replace tmin_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmin == `i'*2 | tmin == `i'*2 + 1
-}
-gen suma = 1
-compress
-collapse (sum) tmin_dum* suma, by(benef_enciptado week)
-forvalues i=0/9{
-	replace tmin_dum_`=`i'*2'_`=`i'*2+1' = tmin_dum_`=`i'*2'_`=`i'*2+1'/suma 
-}
-drop tmin_dum_8_9
-
-replace tmin_dum_0 = tmin_dum_0/ suma
-replace tmin_dum_20 = tmin_dum_20/suma
-drop suma
-compress
-rename week date
-save "$usedata/tmin_dum.dta", replace
-restore
-gen tmax_dum_9 = tmax <10
-gen tmax_dum_38 = tmax >37 & tmax != .
-
-forvalues i=5/18{
-	gen tmax_dum_`=`i'*2'_`=`i'*2+1' = 0
-	replace tmax_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmax == `i'*2 | tmax == `i'*2 + 1
-}
-gen suma = 1
-compress
-collapse (sum) tmax_dum* suma, by(benef_enciptado week)
-forvalues i=5/18{
-	replace tmax_dum_`=`i'*2'_`=`i'*2+1' = tmax_dum_`=`i'*2'_`=`i'*2+1'/suma
-}
-drop tmax_dum_20_21
-replace tmax_dum_9 = tmax_dum_9/ suma
-replace tmax_dum_38 = tmax_dum_38/suma
-compress
-rename week date
-save "$usedata/tmax_dum.dta", replace
-
 
 clear all
 set obs 1
@@ -207,18 +124,11 @@ drop _merge pct_id date
 rename date_td date
 gen year = year(date)
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
-merge n:1 cod_comuna date using "$usedata/tmax_w.dta", keep(1 3) nogenerate
-merge n:1 cod_comuna date using "$usedata/pollution_input.dta", keep(1 3) nogenerate keepusing(meanMP10 meanMP25 maxMP10 maxMP25)
+merge n:1 cod_comuna date using "$usedata/pollution_input.dta", keep(1 3) nogenerate keepusing(meanMP10 meanMP25 maxMP10 maxMP25 medianMP10 medianMP25)
 gen leave3 = leave
 gen leave_re = leave if reactive ==1
 gen leave_ant = leave  if reactive ==0
 replace leave2 = leave2 == .
-gen tmax_mean = tmax
-gen tmin_mean = tmin
-gen meanMP10_max = meanMP10
-gen meanMP25_max = meanMP25
-gen maxMP10_mean = maxMP10
-gen maxMP25_mean = maxMP25
 
 gen week = wofd(date)
 format week %tw
@@ -355,7 +265,7 @@ eststo model11p: reghdfe  y_ant maxMP10 maxMP25, absorb(date cod_comuna reg_mont
 esttab model* using "${tables}/y_sick0_pol_tot_re.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(max* mean*) b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("Reactive" "Reactive" "Reactive" "Reactive" "Reactive" "Reactive" "Anticipated" "Anticipated" "Anticipated" "Anticipated" "Anticipated" "Anticipated") nonotes
 estimates clear
 
-gen pmex = maxMP10 >130 if maxMP10 != .
+
 
 
 
@@ -369,7 +279,6 @@ eststo model3p: reghdfe  y_re pmex, absorb(date cod_comuna reg_month) vce(cluste
 
 
 eststo model4p: reghdfe  y_ant pmex, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-gen pmex2 = maxMP25 >50 if maxMP25 != .
 
 eststo model5p: reghdfe  y_dum pmex2, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
@@ -385,17 +294,21 @@ eststo model8p: reghdfe  y_ant pmex2, absorb(date cod_comuna reg_month) vce(clus
 
 esttab model* using "${tables}/y_sick0_pol_tot_fe.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(pmex*) b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("Dummy" "Spain" "Reactive" "Anticipated" "Dummy" "Spain" "Reactive" "Anticipated") nonotes
 estimates clear
-
-forvalues i=1/20{
-	gen dum_`=(`i'-1)*20+1'_`=`i'*20' = 0
-	replace dum_`=(`i'-1)*20+1'_`=`i'*20' = 1 if maxMP10 >= `=(`i'-1)*20+1' & maxMP10 <= `=`i'*20'
+local q = 1
+foreach n in maxMP10 maxMP10_mean maxMP25 maxMP25_mean meanMP10 meanMP10_max meanMP25 meanMP25_max{
+	forvalues i=1/20{
+		gen dum_`=(`i'-1)*20+1'_`=`i'*20' = 0
+		replace dum_`=(`i'-1)*20+1'_`=`i'*20' = 1 if `n' >= `=(`i'-1)*20+1' & `n' <= `=`i'*20'
+	}
+	gen dum_400 = `n' > 400
+	drop dum_1_20
+	eststo modelp_`q': reghdfe  y_dum dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+	drop dum_*
+	local ++q
 }
-estimates clear
-gen dum_400 = maxMP10 > 400
-drop dum_1_20
-eststo model2p: reghdfe  y_dum dum*, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
 
 
 
-esttab model* using "${tables}/y_sick0_pol_tot_dum.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(dum*) b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("Dummy" "Dummy" "Dummy" "Dummy" "Dummy" "Dummy" "Spain" "Spain" "Spain" "Spain" "Spain" "Spain") nonotes
+
+esttab model* using "${tables}/y_sick0_pol_tot_dum.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps keep(dum*) b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("maxMP10" "maxMP10_mean" "maxMP25" "maxMP25_mean" "meanMP10" "meanMP10_max" "meanMP25" "meanMP25_max") nonotes
