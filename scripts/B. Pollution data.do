@@ -260,28 +260,39 @@ sort benef_enciptado date
 compress
 gen year = year(date)
 merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
-merge n:1 cod_comuna date using "$usedata/pollution_input.dta", keep(1 3) nogenerate keepusing(meanMP10 meanMP25 maxMP10 maxMP25 medianMP10 medianMP25)
-gen week = wofd(date)
-format week %tw
-drop id_all year cod_comuna
-compress
-gen meanMP10_max = meanMP10
-gen meanMP25_max = meanMP25
-gen maxMP10_mean = maxMP10
-gen maxMP25_mean = maxMP25
-gen MP10ex_max = maxMP10 >130 if maxMP10 != .
-gen MP25ex_max = maxMP25 >50 if maxMP25 != .
-gen suma = 1
-collapse (max) meanMP10_max meanMP25_max maxMP10 maxMP25 (sum) suma  MP10ex_max  MP25ex_max (mean) maxMP10_mean maxMP25_mean meanMP10 meanMP25, by(benef_enciptado week)
+foreach m in MP10 MP25 NOX O3{
+	preserve
+	merge n:1 cod_comuna date using "$usedata/pollution_input.dta", keep(1 3) nogenerate keepusing(mean`m' maxMP25 maxMP10 maxNOX maxO3  median`m')
+	gen week = wofd(date)
+	format week %tw
+	drop id_all year cod_comuna
+	compress
+	gen mean`m'_max = mean`m'
+	gen max`m'_mean = max`m'
+	gen MP10ex_max = maxMP10 >130 if maxMP10 != .
+	gen MP25ex_max = maxMP25 >50 if maxMP25 != .
+	gen NOXex_max = maxNOX >100 if maxNOX != .
+	gen O3ex_max = maxO3 >120 if maxO3 != .
+	gen suma = 1
+	gen median`m'_max = median`m'
+	collapse (max) median`m'_max mean`m'_max max`m' (sum) suma  `m'ex_max  (mean) max`m'_mean  mean`m'  median`m' , by(benef_enciptado week)
 
-compress
-rename week date
-replace MP10ex_max = MP10ex_max/suma
-replace MP25ex_max = MP25ex_max/suma
-drop suma
+	compress
+	rename week date
+	replace `m'ex_max = `m'ex_max/suma
+	drop suma
+	tempfile e_`m'
+	save `e_`m''
+	restore
+}
+use `e_MP10', clear
+merge 1:1 benef_enciptado date using `e_MP25', nogenerate 
+merge 1:1 benef_enciptado date using `e_NOX', nogenerate 
+merge 1:1 benef_enciptado date using `e_O3', nogenerate 
+foreach m in MP10 MP25 NOX O3{
+	replace `m'ex_max = . if max`m' == .
+}
 save "$usedata/pollution_merge.dta", replace
-
-
 
 
 

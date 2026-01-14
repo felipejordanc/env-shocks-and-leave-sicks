@@ -265,29 +265,29 @@ names(results) <- vars
 
 ########################################################
 ########################################################
-# Load required packages
+# LOAD PACKAGES
 ########################################################
+
 library(tidyverse)
 
 ########################################################
-# 1. READ .TEX FILE
+# READ .TEX FILE
 ########################################################
 
 tex_file <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/tables/y_sick_w.tex"
 raw <- readLines(tex_file)
 
 ########################################################
-# 2. IDENTIFY COEFFICIENT AND SE ROWS
+# IDENTIFY COEFFICIENT AND SE ROWS
 ########################################################
 
 coef_rows <- raw[str_detect(raw, "^tmax\\\\_dum")]
 se_rows   <- raw[str_detect(raw, "^\\s*&\\s*\\(")]
 
 ########################################################
-# 3. HELPERS
+# HELPERS
 ########################################################
 
-# IMPORTANT: remove \sym{...} FIRST
 clean_row <- function(x) {
   x |>
     str_replace_all("\\\\sym\\{\\*+\\}", "")
@@ -306,12 +306,12 @@ extract_cells <- function(x) {
 }
 
 ########################################################
-# 4. PARSE COEFFICIENTS (ALL 4, FIXED)
+# PARSE COEFFICIENTS
 ########################################################
 
 coef_df <- tibble(row = coef_rows) |>
   mutate(
-    row = clean_row(row),   # <-- FIX HERE
+    row = clean_row(row),
     bin = str_extract(row, "dum\\\\_[0-9_]+") |>
       str_replace_all("\\\\_", "_"),
     vals = map(row, extract_cells)
@@ -320,7 +320,7 @@ coef_df <- tibble(row = coef_rows) |>
   mutate(across(starts_with("vals"), clean_num))
 
 ########################################################
-# 5. PARSE STANDARD ERRORS (ALL 4)
+# PARSE STANDARD ERRORS
 ########################################################
 
 se_df <- tibble(row = se_rows) |>
@@ -335,12 +335,11 @@ se_df <- tibble(row = se_rows) |>
   unnest_wider(vals, names_sep = "_")
 
 ########################################################
-# 6. COMBINE + LONG FORMAT
+# COMBINE + LONG FORMAT
 ########################################################
 
 models <- c("Dummy", "Spain", "Reactive", "Anticipated")
 
-# ---- coefficients to long ----
 coef_long <- coef_df |>
   pivot_longer(
     cols = starts_with("vals"),
@@ -352,7 +351,6 @@ coef_long <- coef_df |>
   ) |>
   select(bin, model, estimate)
 
-# ---- SEs to long ----
 se_long <- coef_df |>
   select(bin) |>
   bind_cols(se_df) |>
@@ -366,31 +364,25 @@ se_long <- coef_df |>
   ) |>
   select(bin, model, se)
 
-
-# ---- combine correctly (JOIN, not bind_cols) ----
 reg_long <- coef_long |>
   left_join(se_long, by = c("bin", "model")) |>
-  group_by(model) |>
   mutate(
     lower = estimate - 1.96 * se,
-    upper = estimate + 1.96 * se,
-    bin_index = row_number()
-  ) |>
-  ungroup()
-
-
+    upper = estimate + 1.96 * se
+  )
 
 ########################################################
-# 7. BIN LABELS (UNCHANGED)
+# BIN LABELS + ORDER (AUTHORITATIVE)
 ########################################################
 
 NEW_LABELS <- c(
-  dum_9 = "< 9",
+  dum_9  = "< 9",
   dum_10 = "10–11",
   dum_12 = "12–13",
   dum_14 = "14–15",
   dum_16 = "16–17",
   dum_18 = "18–19",
+  dum_20 = "20–21",
   dum_22 = "22–23",
   dum_24 = "24–25",
   dum_26 = "26–27",
@@ -402,80 +394,118 @@ NEW_LABELS <- c(
   dum_38 = "> 38"
 )
 
+bin_order <- names(NEW_LABELS)
+
+########################################################
+# COMPLETE DATA + FIX COLOR INDEX (KEY FIX)
+########################################################
+
 reg_long <- reg_long |>
-  mutate(bin_label = recode(bin, !!!NEW_LABELS))
+  complete(
+    model,
+    bin = bin_order,
+    fill = list(
+      estimate = NA_real_,
+      se       = NA_real_,
+      lower    = NA_real_,
+      upper    = NA_real_
+    )
+  ) |>
+  mutate(
+    bin_index = match(bin, bin_order),
+    bin_label = factor(
+      recode(bin, !!!NEW_LABELS),
+      levels = NEW_LABELS
+    )
+  )
 
 ########################################################
-# 8. PLOTTING FUNCTION
+# COLOR PALETTE (ORIGINAL)
 ########################################################
 
-plot_model <- function(df, subtitle_text) {
-  ggplot(df, aes(
-    x = fct_inorder(bin_label),
+my_cols <- function(n) {
+  grDevices::colorRampPalette(
+    c("#4575b4", "#ffffbf", "#d73027")
+  )(n)
+}
+
+n_bins <- length(bin_order)
+
+########################################################
+# SINGLE FIGURE (COLOR IS NOW CORRECT)
+########################################################
+
+p <- ggplot(
+  reg_long,
+  aes(
+    x = bin_label,
     y = estimate,
     fill = bin_index
-  )) +
-    geom_col(width = 0.8) +
-    geom_errorbar(
-      aes(ymin = lower, ymax = upper),
-      width = 0.15,
-      color = "black"
-    ) +
-    scale_fill_gradientn(
-      colors = my_cols(seq(0, 1, length.out = nrow(df))),
-      guide = "none"
-    ) +
-    geom_hline(yintercept = 0, linetype = "dashed") +
-    coord_cartesian(ylim = c(-0.1, 0.5)) +
-    labs(
-      x = "Bin",
-      y = "Estimate",
-      title = "Regression Coefficients ",
-      subtitle = subtitle_text
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(
-      axis.text.x = element_text(angle = 60, hjust = 1),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
-    )
-}
+  )
+) +
+  geom_col(width = 0.8, na.rm = TRUE) +
+  geom_errorbar(
+    aes(ymin = lower, ymax = upper),
+    width = 0.15,
+    color = "black",
+    na.rm = TRUE
+  ) +
+  facet_wrap(~ model, ncol = 2) +
+  scale_fill_gradientn(
+    colors = my_cols(n_bins),
+    limits = c(1, n_bins),     # <-- CRITICAL
+    guide = "none"
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_cartesian(ylim = c(-0.1, 0.5)) +
+  labs(
+    x = "Bin",
+    y = "Estimate",
+    title = "Regression Coefficients by Model"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
 
 ########################################################
-# 9. GENERATE & SAVE PLOTS
+# SAVE OUTPUT
 ########################################################
-# Gradient palette (same behavior as before)
-my_cols <- function(x) {
-  grDevices::colorRampPalette(c("#4575b4", "#ffffbf", "#d73027"))(length(x))
-}
-plots <- split(reg_long, reg_long$model) |>
-  map(~ plot_model(.x, unique(.x$model)))
 
-ggsave("dummy.png",       plots$Dummy,       width = 12, height = 8, dpi = 300)
-ggsave("spain.png",       plots$Spain,       width = 12, height = 8, dpi = 300)
-ggsave("reactive.png",    plots$Reactive,    width = 12, height = 8, dpi = 300)
-ggsave("anticipated.png", plots$Anticipated, width = 12, height = 8, dpi = 300)
-
+ggsave(
+  "all_models.png",
+  p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
 
 ########################################################
-# 1. READ .TEX FILE
+# LOAD PACKAGES
+########################################################
+
+library(tidyverse)
+
+########################################################
+# READ .TEX FILE
 ########################################################
 
 tex_file <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/tables/y_sick_w_min.tex"
 raw <- readLines(tex_file)
 
 ########################################################
-# 2. IDENTIFY COEFFICIENT AND SE ROWS
+# IDENTIFY COEFFICIENT AND SE ROWS
 ########################################################
 
 coef_rows <- raw[str_detect(raw, "^tmin\\\\_dum")]
 se_rows   <- raw[str_detect(raw, "^\\s*&\\s*\\(")]
 
 ########################################################
-# 3. HELPERS
+# HELPERS
 ########################################################
 
-# IMPORTANT: remove \sym{...} FIRST
 clean_row <- function(x) {
   x |>
     str_replace_all("\\\\sym\\{\\*+\\}", "")
@@ -494,12 +524,12 @@ extract_cells <- function(x) {
 }
 
 ########################################################
-# 4. PARSE COEFFICIENTS (ALL 4, FIXED)
+# PARSE COEFFICIENTS
 ########################################################
 
 coef_df <- tibble(row = coef_rows) |>
   mutate(
-    row = clean_row(row),   # <-- FIX HERE
+    row = clean_row(row),
     bin = str_extract(row, "dum\\\\_[0-9_]+") |>
       str_replace_all("\\\\_", "_"),
     vals = map(row, extract_cells)
@@ -508,7 +538,7 @@ coef_df <- tibble(row = coef_rows) |>
   mutate(across(starts_with("vals"), clean_num))
 
 ########################################################
-# 5. PARSE STANDARD ERRORS (ALL 4)
+# PARSE STANDARD ERRORS
 ########################################################
 
 se_df <- tibble(row = se_rows) |>
@@ -523,12 +553,11 @@ se_df <- tibble(row = se_rows) |>
   unnest_wider(vals, names_sep = "_")
 
 ########################################################
-# 6. COMBINE + LONG FORMAT
+# COMBINE + LONG FORMAT
 ########################################################
 
 models <- c("Dummy", "Spain", "Reactive", "Anticipated")
 
-# ---- coefficients to long ----
 coef_long <- coef_df |>
   pivot_longer(
     cols = starts_with("vals"),
@@ -540,7 +569,6 @@ coef_long <- coef_df |>
   ) |>
   select(bin, model, estimate)
 
-# ---- SEs to long ----
 se_long <- coef_df |>
   select(bin) |>
   bind_cols(se_df) |>
@@ -554,30 +582,24 @@ se_long <- coef_df |>
   ) |>
   select(bin, model, se)
 
-
-# ---- combine correctly (JOIN, not bind_cols) ----
 reg_long <- coef_long |>
   left_join(se_long, by = c("bin", "model")) |>
-  group_by(model) |>
   mutate(
     lower = estimate - 1.96 * se,
-    upper = estimate + 1.96 * se,
-    bin_index = row_number()
-  ) |>
-  ungroup()
-
-
+    upper = estimate + 1.96 * se
+  )
 
 ########################################################
-# 7. BIN LABELS (UNCHANGED)
+# BIN LABELS + ORDER (WITH EMPTY dum_8)
 ########################################################
 
 NEW_LABELS <- c(
-  dum_1 = "< 0",
-  dum_0 = "0–1",
-  dum_2 = "2–3",
-  dum_4 = "4–5",
-  dum_6 = "6–7",
+  dum_1  = "< 0",
+  dum_0  = "0–1",
+  dum_2  = "2–3",
+  dum_4  = "4–5",
+  dum_6  = "6–7",
+  dum_8  = "8–9",     # EMPTY BIN
   dum_10 = "10–11",
   dum_12 = "12–13",
   dum_14 = "14–15",
@@ -586,59 +608,93 @@ NEW_LABELS <- c(
   dum_20 = ">20"
 )
 
+bin_order <- names(NEW_LABELS)
+n_bins <- length(bin_order)
+
+########################################################
+# COMPLETE DATA + STRUCTURAL COLOR INDEX
+########################################################
+
 reg_long <- reg_long |>
-  mutate(bin_label = recode(bin, !!!NEW_LABELS))
+  complete(
+    model,
+    bin = bin_order,
+    fill = list(
+      estimate = NA_real_,
+      se       = NA_real_,
+      lower    = NA_real_,
+      upper    = NA_real_
+    )
+  ) |>
+  mutate(
+    bin_index = match(bin, bin_order),
+    bin_label = factor(
+      recode(bin, !!!NEW_LABELS),
+      levels = NEW_LABELS
+    )
+  )
 
 ########################################################
-# 8. PLOTTING FUNCTION
+# COLOR PALETTE (ORIGINAL)
 ########################################################
 
-plot_model <- function(df, subtitle_text) {
-  ggplot(df, aes(
-    x = fct_inorder(bin_label),
+my_cols <- function(n) {
+  grDevices::colorRampPalette(
+    c("#4575b4", "#ffffbf", "#d73027")
+  )(n)
+}
+
+########################################################
+# SINGLE FIGURE WITH FACETS (CORRECT COLORS)
+########################################################
+
+p <- ggplot(
+  reg_long,
+  aes(
+    x = bin_label,
     y = estimate,
     fill = bin_index
-  )) +
-    geom_col(width = 0.8) +
-    geom_errorbar(
-      aes(ymin = lower, ymax = upper),
-      width = 0.15,
-      color = "black"
-    ) +
-    scale_fill_gradientn(
-      colors = my_cols(seq(0, 1, length.out = nrow(df))),
-      guide = "none"
-    ) +
-    geom_hline(yintercept = 0, linetype = "dashed") +
-    coord_cartesian(ylim = c(-0.1, 0.5)) +
-    labs(
-      x = "Bin",
-      y = "Estimate",
-      title = "Regression Coefficients ",
-      subtitle = subtitle_text
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(
-      axis.text.x = element_text(angle = 60, hjust = 1),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
-    )
-}
+  )
+) +
+  geom_col(width = 0.8, na.rm = TRUE) +
+  geom_errorbar(
+    aes(ymin = lower, ymax = upper),
+    width = 0.15,
+    color = "black",
+    na.rm = TRUE
+  ) +
+  facet_wrap(~ model, ncol = 2) +
+  scale_fill_gradientn(
+    colors = my_cols(n_bins),
+    limits = c(1, n_bins),
+    guide = "none"
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_cartesian(ylim = c(-0.1, 0.5)) +
+  labs(
+    x = "Bin",
+    y = "Estimate",
+    title = "Regression Coefficients by Model"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
 
 ########################################################
-# 9. GENERATE & SAVE PLOTS
+# SAVE OUTPUT
 ########################################################
-# Gradient palette (same behavior as before)
-my_cols <- function(x) {
-  grDevices::colorRampPalette(c("#4575b4", "#ffffbf", "#d73027"))(length(x))
-}
-plots <- split(reg_long, reg_long$model) |>
-  map(~ plot_model(.x, unique(.x$model)))
 
-ggsave("dummy_m.png",       plots$Dummy,       width = 12, height = 8, dpi = 300)
-ggsave("spain_m.png",       plots$Spain,       width = 12, height = 8, dpi = 300)
-ggsave("reactive_m.png",    plots$Reactive,    width = 12, height = 8, dpi = 300)
-ggsave("anticipated_m.png", plots$Anticipated, width = 12, height = 8, dpi = 300)
+ggsave(
+  "all_models_tmin.png",
+  p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
 
 ########################################################
 
@@ -832,3 +888,471 @@ ggsave("dummy.png",       plots$Dummy,       width = 12, height = 8, dpi = 300)
 ggsave("spain.png",       plots$Spain,       width = 12, height = 8, dpi = 300)
 ggsave("reactive.png",    plots$Reactive,    width = 12, height = 8, dpi = 300)
 ggsave("anticipated.png", plots$Anticipated, width = 12, height = 8, dpi = 300)
+
+
+
+########################################################
+# LIBRARIES
+########################################################
+
+library(tidyverse)
+
+########################################################
+# READ .TEX FILE
+########################################################
+
+tex_file <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/tables/income_tmax_graph.tex"
+
+raw <- readLines(tex_file)
+
+########################################################
+# IDENTIFY COEFFICIENT AND SE ROWS
+########################################################
+
+coef_rows <- raw[str_detect(raw, "^tmax\\\\_dum")]
+se_rows   <- raw[str_detect(raw, "^\\s*&\\s*\\(")]
+
+########################################################
+# HELPERS
+########################################################
+
+clean_row <- function(x) {
+  x |>
+    str_replace_all("\\\\sym\\{\\*+\\}", "")
+}
+
+clean_num <- function(x) {
+  x |>
+    str_squish() |>
+    as.numeric()
+}
+
+extract_cells <- function(x) {
+  str_split(x, "&")[[1]][-1] |>
+    str_remove_all("\\\\") |>
+    str_trim()
+}
+
+########################################################
+# PARSE COEFFICIENTS
+########################################################
+
+coef_df <- tibble(row = coef_rows) |>
+  mutate(
+    row = clean_row(row),
+    bin = str_extract(row, "dum\\\\_[0-9_]+") |>
+      str_replace_all("\\\\_", "_"),
+    vals = map(row, extract_cells)
+  ) |>
+  unnest_wider(vals, names_sep = "_") |>
+  mutate(across(starts_with("vals"), clean_num))
+
+########################################################
+# PARSE STANDARD ERRORS
+########################################################
+
+se_df <- tibble(row = se_rows) |>
+  mutate(
+    vals = map(
+      row,
+      ~ str_extract_all(.x, "\\(([0-9\\.]+)\\)")[[1]] |>
+        str_remove_all("[()]") |>
+        as.numeric()
+    )
+  ) |>
+  unnest_wider(vals, names_sep = "_")
+
+########################################################
+# MODEL TITLES (AUTHORITATIVE ORDER)
+########################################################
+
+model_titles <- c(
+  "Low Income_Cold",
+  "Low Income_Temperate",
+  "Low Income_Hot",
+  "Middle Income_Cold",
+  "Middle Income_Temperate",
+  "Middle Income_Hot",
+  "High Income_Cold",
+  "High Income_Temperate",
+  "High Income_Hot"
+) |>
+  str_replace("_", " - ")
+
+########################################################
+# LONG FORMAT (9 MODELS, ORDER PRESERVED)
+########################################################
+
+coef_long <- coef_df |>
+  pivot_longer(
+    cols = starts_with("vals"),
+    names_to = "model_id",
+    values_to = "estimate"
+  ) |>
+  mutate(
+    model_index = as.integer(str_remove(model_id, "vals_")),
+    model = model_titles[model_index]
+  ) |>
+  select(bin, model, model_index, estimate)
+
+se_long <- coef_df |>
+  select(bin) |>
+  bind_cols(se_df) |>
+  pivot_longer(
+    cols = starts_with("vals"),
+    names_to = "model_id",
+    values_to = "se"
+  ) |>
+  mutate(
+    model_index = as.integer(str_remove(model_id, "vals_")),
+    model = model_titles[model_index]
+  ) |>
+  select(bin, model, model_index, se)
+
+reg_long <- coef_long |>
+  left_join(se_long, by = c("bin", "model", "model_index")) |>
+  mutate(
+    lower = estimate - 1.96 * se,
+    upper = estimate + 1.96 * se
+  )
+
+########################################################
+# BIN LABELS + ORDER (AUTHORITATIVE)
+########################################################
+
+NEW_LABELS <- c(
+  dum_9  = "< 9",
+  dum_10 = "10–11",
+  dum_12 = "12–13",
+  dum_14 = "14–15",
+  dum_16 = "16–17",
+  dum_18 = "18–19",
+  dum_20 = "20–21",
+  dum_22 = "22–23",
+  dum_24 = "24–25",
+  dum_26 = "26–27",
+  dum_28 = "28–29",
+  dum_30 = "30–31",
+  dum_32 = "32–33",
+  dum_34 = "34–35",
+  dum_36 = "36–37",
+  dum_38 = "> 38"
+)
+
+bin_order <- names(NEW_LABELS)
+
+########################################################
+# COMPLETE DATA + LOCK FACET ORDER (OPTIONAL FIX)
+########################################################
+
+reg_long <- reg_long |>
+  complete(
+    model,
+    bin = bin_order,
+    fill = list(
+      estimate = 0,
+      se       = 0,
+      lower    = 0,
+      upper    = 0
+    )
+  ) |>
+  mutate(
+    bin_index = match(bin, bin_order),
+    bin_label = factor(
+      recode(bin, !!!NEW_LABELS),
+      levels = NEW_LABELS
+    ),
+    model = factor(model, levels = model_titles)
+  )
+
+########################################################
+# LINE PLOT WITH CI RIBBON
+########################################################
+
+p <- ggplot(
+  reg_long,
+  aes(
+    x = bin_index,
+    y = estimate
+  )
+) +
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper),
+    fill = "grey70",
+    alpha = 0.4
+  ) +
+  geom_line(
+    color = "red",
+    linewidth = 1
+  ) +
+  geom_point(
+    color = "red",
+    size = 2
+  ) +
+  geom_hline(
+    yintercept = 0,
+    color = "black",
+    linewidth = 0.6
+  ) +
+  facet_wrap(~ model, ncol = 3) +
+  scale_x_continuous(
+    breaks = seq_along(bin_order),
+    labels = NEW_LABELS
+  ) +
+  coord_cartesian(ylim = c(-1, 1)) +
+  labs(
+    x = "Bin",
+    y = "Estimate",
+    title = "Regression Coefficients - Max Temperature"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+########################################################
+# SAVE OUTPUT
+########################################################
+
+ggsave(
+  "all_models_line_ci.png",
+  p,
+  width = 16,
+  height = 10,
+  dpi = 300
+)
+
+########################################################
+# LIBRARIES
+########################################################
+
+library(tidyverse)
+
+########################################################
+# READ .TEX FILE
+########################################################
+
+tex_file <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/tables/income_tmax_graph2.tex"
+
+raw <- readLines(tex_file)
+
+########################################################
+# IDENTIFY COEFFICIENT AND SE ROWS
+########################################################
+
+coef_rows <- raw[str_detect(raw, "^tmax\\\\_dum")]
+se_rows   <- raw[str_detect(raw, "^\\s*&\\s*\\(")]
+
+########################################################
+# HELPERS
+########################################################
+
+clean_row <- function(x) {
+  x |>
+    str_replace_all("\\\\sym\\{\\*+\\}", "")
+}
+
+clean_num <- function(x) {
+  x |>
+    str_squish() |>
+    as.numeric()
+}
+
+extract_cells <- function(x) {
+  str_split(x, "&")[[1]][-1] |>
+    str_remove_all("\\\\") |>
+    str_trim()
+}
+
+########################################################
+# PARSE COEFFICIENTS
+########################################################
+
+coef_df <- tibble(row = coef_rows) |>
+  mutate(
+    row = clean_row(row),
+    bin = str_extract(row, "dum\\\\_[0-9_]+") |>
+      str_replace_all("\\\\_", "_"),
+    vals = map(row, extract_cells)
+  ) |>
+  unnest_wider(vals, names_sep = "_") |>
+  mutate(across(starts_with("vals"), clean_num))
+
+########################################################
+# PARSE STANDARD ERRORS
+########################################################
+
+se_df <- tibble(row = se_rows) |>
+  mutate(
+    vals = map(
+      row,
+      ~ str_extract_all(.x, "\\(([0-9\\.]+)\\)")[[1]] |>
+        str_remove_all("[()]") |>
+        as.numeric()
+    )
+  ) |>
+  unnest_wider(vals, names_sep = "_")
+
+########################################################
+# MODEL TITLES (AUTHORITATIVE ORDER)
+########################################################
+
+model_titles <- c(
+  "Low Income_Cold",
+  "Low Income_Temperate",
+  "Low Income_Hot",
+  "Middle Income_Cold",
+  "Middle Income_Temperate",
+  "Middle Income_Hot",
+  "High Income_Cold",
+  "High Income_Temperate",
+  "High Income_Hot"
+) |>
+  str_replace("_", " - ")
+
+########################################################
+# LONG FORMAT (9 MODELS, ORDER PRESERVED)
+########################################################
+
+coef_long <- coef_df |>
+  pivot_longer(
+    cols = starts_with("vals"),
+    names_to = "model_id",
+    values_to = "estimate"
+  ) |>
+  mutate(
+    model_index = as.integer(str_remove(model_id, "vals_")),
+    model = model_titles[model_index]
+  ) |>
+  select(bin, model, model_index, estimate)
+
+se_long <- coef_df |>
+  select(bin) |>
+  bind_cols(se_df) |>
+  pivot_longer(
+    cols = starts_with("vals"),
+    names_to = "model_id",
+    values_to = "se"
+  ) |>
+  mutate(
+    model_index = as.integer(str_remove(model_id, "vals_")),
+    model = model_titles[model_index]
+  ) |>
+  select(bin, model, model_index, se)
+
+reg_long <- coef_long |>
+  left_join(se_long, by = c("bin", "model", "model_index")) |>
+  mutate(
+    lower = estimate - 1.96 * se,
+    upper = estimate + 1.96 * se
+  )
+
+########################################################
+# BIN LABELS + ORDER (AUTHORITATIVE)
+########################################################
+
+NEW_LABELS <- c(
+  dum_9  = "< 9",
+  dum_10 = "10–11",
+  dum_12 = "12–13",
+  dum_14 = "14–15",
+  dum_16 = "16–17",
+  dum_18 = "18–19",
+  dum_20 = "20–21",
+  dum_22 = "22–23",
+  dum_24 = "24–25",
+  dum_26 = "26–27",
+  dum_28 = "28–29",
+  dum_30 = "30–31",
+  dum_32 = "32–33",
+  dum_34 = "34–35",
+  dum_36 = "36–37",
+  dum_38 = "> 38"
+)
+
+bin_order <- names(NEW_LABELS)
+
+########################################################
+# COMPLETE DATA + LOCK FACET ORDER (OPTIONAL FIX)
+########################################################
+
+reg_long <- reg_long |>
+  complete(
+    model,
+    bin = bin_order,
+    fill = list(
+      estimate = 0,
+      se       = 0,
+      lower    = 0,
+      upper    = 0
+    )
+  ) |>
+  mutate(
+    bin_index = match(bin, bin_order),
+    bin_label = factor(
+      recode(bin, !!!NEW_LABELS),
+      levels = NEW_LABELS
+    ),
+    model = factor(model, levels = model_titles)
+  )
+
+########################################################
+# LINE PLOT WITH CI RIBBON
+########################################################
+
+p <- ggplot(
+  reg_long,
+  aes(
+    x = bin_index,
+    y = estimate
+  )
+) +
+  geom_ribbon(
+    aes(ymin = lower, ymax = upper),
+    fill = "grey70",
+    alpha = 0.4
+  ) +
+  geom_line(
+    color = "red",
+    linewidth = 1
+  ) +
+  geom_point(
+    color = "red",
+    size = 2
+  ) +
+  geom_hline(
+    yintercept = 0,
+    color = "black",
+    linewidth = 0.6
+  ) +
+  facet_wrap(~ model, ncol = 3) +
+  scale_x_continuous(
+    breaks = seq_along(bin_order),
+    labels = NEW_LABELS
+  ) +
+  coord_cartesian(ylim = c(-1, 1)) +
+  labs(
+    x = "Bin",
+    y = "Estimate",
+    title = "Regression Coefficients - Max Temperature"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+########################################################
+# SAVE OUTPUT
+########################################################
+
+ggsave(
+  "all_models_line_ci2.png",
+  p,
+  width = 16,
+  height = 10,
+  dpi = 300
+)
