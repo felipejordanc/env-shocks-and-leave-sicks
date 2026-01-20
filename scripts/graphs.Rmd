@@ -1356,3 +1356,115 @@ ggsave(
   height = 10,
   dpi = 300
 )
+
+
+
+########################################################
+# LOAD PACKAGES
+########################################################
+
+library(tidyverse)
+
+########################################################
+# INPUT DATA (COUNTS BY TEMPERATURE BIN)
+########################################################
+
+counts_df <- tibble(
+  bin = c(
+    "dum_9", "dum_38", "dum_10_11", "dum_12_13", "dum_14_15",
+    "dum_16_17", "dum_18_19", "dum_20_21", "dum_22_23",
+    "dum_24_25", "dum_26_27", "dum_28_29", "dum_30_31",
+    "dum_32_33", "dum_34_35", "dum_36_37"
+  ),
+  count = c(
+    38843, 220, 45123, 72948, 91753, 92107, 89047, 84213,
+    78840, 68055, 62779, 60231, 51256, 30003, 10192, 1441
+  )
+)
+
+########################################################
+# BIN LABELS + ORDER (AUTHORITATIVE)
+########################################################
+
+NEW_LABELS <- c(
+  dum_9       = "< 9",
+  dum_10_11   = "10–11",
+  dum_12_13   = "12–13",
+  dum_14_15   = "14–15",
+  dum_16_17   = "16–17",
+  dum_18_19   = "18–19",
+  dum_20_21   = "20–21",
+  dum_22_23   = "22–23",
+  dum_24_25   = "24–25",
+  dum_26_27   = "26–27",
+  dum_28_29   = "28–29",
+  dum_30_31   = "30–31",
+  dum_32_33   = "32–33",
+  dum_34_35   = "34–35",
+  dum_36_37   = "36–37",
+  dum_38      = "> 38"
+)
+
+bin_order <- names(NEW_LABELS)
+
+########################################################
+# ADD BIN INDEX + FACTOR LABELS (KEY STEP)
+########################################################
+
+counts_df <- counts_df |>
+  mutate(
+    bin_index = match(bin, bin_order),
+    bin_label = factor(
+      recode(bin, !!!NEW_LABELS),
+      levels = NEW_LABELS
+    )
+  )
+
+########################################################
+# COLOR PALETTE (ORIGINAL)
+########################################################
+
+my_cols <- function(n) {
+  grDevices::colorRampPalette(
+    c("#4575b4", "#ffffbf", "#d73027")
+  )(n)
+}
+
+n_bins <- length(bin_order)
+
+########################################################
+# BAR GRAPH (ORDER + GRADIENT PRESERVED)
+########################################################
+
+p_counts <- ggplot(
+  counts_df,
+  aes(
+    x = bin_label,
+    y = count,
+    fill = bin_index
+  )
+) +
+  geom_col(width = 0.8) +
+  scale_fill_gradientn(
+    colors = my_cols(n_bins),
+    limits = c(1, n_bins),
+    guide = "none"
+  ) +
+  labs(
+    x = "Maximum temperature bin",
+    y = "Number of observations",
+    title = "Distribution of observations by temperature bin"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+########################################################
+# DISPLAY PLOT
+########################################################
+
+ggsave( "histo_models.png", p_counts, width = 14, height = 10, dpi = 300 )
+

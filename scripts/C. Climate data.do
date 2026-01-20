@@ -160,9 +160,16 @@ compress
 rename week date
 save "$usedata/tmax_dum.dta", replace
 
-
-
-
+gen tmin_dum_0 = tmin <0
+gen tmin_dum_20 = tmin >19 & tmin != .
+gen tmin_mean = tmin
+forvalues i=0/9{
+	gen tmin_dum_`=`i'*2'_`=`i'*2+1' = 0
+	replace tmin_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmin == `i'*2 | tmin == `i'*2 + 1
+}
+gen suma = 1
+compress
+collapse (sum) tmin_dum* suma (min) tmin (mean) tmin_mean
 
 
 

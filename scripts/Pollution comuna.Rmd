@@ -1,244 +1,276 @@
+############################################################
+# Libraries
+############################################################
 library(haven)
-
-
-df <- read_dta("C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate/pollution_comuna_14.dta")
-df <- df %>%
-  rename(countid = Entidad,
-         panelid = comb)
 library(dplyr)
 library(tidyr)
 library(purrr)
 library(stringr)
-library(rsample)
 library(broom)
 library(tibble)
 
-all_nonempty_subsets <- function(x) {
+############################################################
+# Load data
+############################################################
+
+
+neighbors <- read_dta("C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate/neighbors.dta")%>%
+  rename(countid =entidad)
+
+############################################################
+# Helper: all non-empty subsets up to size 2 (SAFE)
+############################################################
+neighbor_subsets <- function(vec, max_k = 5) {
+
+  vec <- vec[!is.na(vec)]
+  k <- length(vec)
+
+  if (k == 0) return(list())
+
+  max_k <- min(max_k, k)
+
   unlist(
-    lapply(seq_along(x), function(k) {
-      combn(x, k, simplify = FALSE)
-    }),
+    lapply(1:max_k, function(m) combn(vec, m, simplify = FALSE)),
     recursive = FALSE
   )
 }
 
-fit_and_eval <- function(y, xmat, train_frac) {
-  n <- length(y)
-  idx <- seq_len(n)
-  train_n <- floor(train_frac * n)
-  train_idx <- sample(idx, train_n)
 
-  y_tr <- y[train_idx]
-  y_te <- y[-train_idx]
+############################################################
+# Core imputation for one countid
+############################################################
+impute_one_countid <- function(df, neighbors_row, var, min_obs = 5) {
 
-  x_tr <- xmat[train_idx, , drop = FALSE]
-  x_te <- xmat[-train_idx, , drop = FALSE]
+  cid <- neighbors_row$countid
+  neigs <- neighbors_row %>%
+    select(starts_with("neig_")) %>%
+    unlist(use.names = FALSE)
 
-  fit <- tryCatch(
-    lm.fit(x = cbind(1, x_tr), y = y_tr),
-    error = function(e) NULL
-  )
-  if (is.null(fit)) return(NULL)
+  neigs <- neigs[!is.na(neigs)]
 
-  preds <- cbind(1, x_te) %*% fit$coefficients
-
-  ss_res <- sum((y_te - preds)^2)
-  ss_tot <- sum((y_te - mean(y_te))^2)
-
-  r2 <- 1 - ss_res / ss_tot
-  rmse <- sqrt(mean((y_te - preds)^2))
-
-  p <- ncol(x_tr)
-  n_te <- length(y_te)
-
-  r2adj <- if (n_te - p - 1 > 0) {
-    1 - (1 - r2) * ((n_te - 1) / (n_te - p - 1))
-  } else {
-    NA_real_
+  # Subset data
+  df_y <- df %>% filter(countid == cid)
+  # ---- skip if target variable is entirely missing for this countid ----
+  if (all(is.na(df_y[[var]]))) {
+    return(list(
+      data = df_y,
+      meta = tibble(
+        countid = cid,
+        var = var,
+        note = "skipped: target variable entirely missing for countid"
+      )
+    ))
   }
 
-  list(
-    fit = fit,
-    r2 = r2,
-    rmse = rmse,
-    r2adj = r2adj
-  )
-}
 
-impute_one_comuna <- function(
-  df_comuna,
-  var,
-  panelid_col = "panelid",
-  countid_col = "countid",
-  date_col = "date",
-  metric = c("r2adj", "r2", "rmse"),
-  train_frac = 0.8,
-  min_obs = 10,
-  verbose = TRUE,
-  seed = 123
-) {
-  metric <- match.arg(metric)
-  set.seed(seed)
+  if (length(neigs) == 0) {
+    return(list(
+      data = df_y,
+      meta = tibble(countid = cid, var = var, note = "no neighbors")
+    ))
+  }
 
-  wide <- df_comuna |>
-    select(all_of(c(date_col, countid_col, var))) |>
-    pivot_wider(
-      id_cols = all_of(date_col),
-      names_from = all_of(countid_col),
-      values_from = all_of(var)
-    ) |>
-    arrange(.data[[date_col]])
-
-  mat <- as.matrix(wide[, -1])
-  colnames(mat) <- colnames(wide)[-1]
-
-  panel_map <- df_comuna[, c(panelid_col, countid_col)] |>
-    distinct() |>
-    group_by(.data[[panelid_col]]) |>
-    summarise(
-      countids = list(as.character(.data[[countid_col]])),
-      .groups = "drop"
+  # Build wide data: y + neighbor ys
+  wide <- df_y %>%
+    select(date, y = all_of(var)) %>%
+    left_join(
+      df %>%
+        filter(countid %in% neigs) %>%
+        select(date, countid, all_of(var)) %>%
+        pivot_wider(
+          names_from = countid,
+          values_from = all_of(var),
+          names_prefix = "neig_"
+        ),
+      by = "date"
     )
 
-  panels <- panel_map[[panelid_col]]
-  panel_to_cols <- setNames(panel_map$countids, panels)
+  neigh_cols <- names(wide) %>% keep(~ str_starts(.x, "neig_"))
 
-  mat_imp <- mat
-  metadata <- list()
+  # Single neighbor → direct regression
+  if (length(neigh_cols) == 1) {
+    f <- as.formula(paste0("y ~ ", neigh_cols))
+    fit <- tryCatch(lm(f, data = wide), error = function(e) NULL)
 
-  for (target_panel in panels) {
-    target_countids <- panel_to_cols[[target_panel]]
-    other_panels <- setdiff(panels, target_panel)
-    if (length(other_panels) == 0) next
-
-    panel_sets <- all_nonempty_subsets(other_panels)
-
-    for (cid in target_countids) {
-      if (verbose) {
-        message(
-          "[", unique(df_comuna$cod_comuna),
-          "] panel ", target_panel,
-          " | imputing countid ", cid
-        )
-      }
-
-      y <- mat[, cid]
-      miss <- is.na(y)
-      if (!any(miss)) next
-
-      best <- NULL
-
-      for (ps in panel_sets) {
-        pred_cols <- unlist(panel_to_cols[ps])
-        valid <- !is.na(mat[, pred_cols[1]])
-        keep <- valid & !miss
-        if (sum(keep) < min_obs) next
-
-        fe <- fit_and_eval(
-          y = y[keep],
-          xmat = mat[keep, pred_cols, drop = FALSE],
-          train_frac = train_frac
-        )
-        if (is.null(fe)) next
-
-        score <- switch(
-          metric,
-          r2adj = fe$r2adj,
-          r2 = fe$r2,
-          rmse = -fe$rmse
-        )
-        
-        if (!is.finite(score)) next
-        
-        if (is.null(best) || score > best$score) {
-          best <- list(
-            pred_panels = ps,
-            pred_cols = pred_cols,
-            fit = fe$fit,
-            score = score
-          )
-        }
-
-      }
-
-      if (is.null(best)) next
-
-      pred_rows <- miss & !is.na(mat[, best$pred_cols[1]])
-      x_new <- mat[pred_rows, best$pred_cols, drop = FALSE]
-      preds <- cbind(1, x_new) %*% best$fit$coefficients
-      mat_imp[pred_rows, cid] <- preds
-
-      metadata[[length(metadata) + 1]] <- tibble(
-        cod_comuna = unique(df_comuna$cod_comuna),
-        panelid = target_panel,
-        countid = cid,
-        predictors = paste(best$pred_panels, collapse = "+"),
-        metric = metric,
-        score = best$score,
-        n_predicted = sum(pred_rows)
-      )
+    if (is.null(fit)) {
+      return(list(
+        data = df_y,
+        meta = tibble(countid = cid, var = var, note = "lm failed (1 neighbor)")
+      ))
     }
+
+    preds <- predict(fit, newdata = wide)
+
+    out <- df_y %>%
+      mutate(!!var := if_else(is.na(.data[[var]]), preds, .data[[var]]))
+
+    return(list(
+      data = out,
+      meta = tibble(
+        countid = cid,
+        var = var,
+        chosen_predictors = neigh_cols,
+        adj_r2 = summary(fit)$adj.r.squared,
+        note = "single neighbor"
+      )
+    ))
   }
 
-  wide_imp <- wide
-  wide_imp[, -1] <- mat_imp
+  # ≥2 neighbors → model selection
+  subsets <- neighbor_subsets(neigh_cols, max_k = 5)
 
-  long_imp <- wide_imp |>
-    pivot_longer(
-      -all_of(date_col),
-      names_to = countid_col,
-      values_to = var
-    ) |>
-    mutate(!!countid_col := as.integer(.data[[countid_col]]))
+
+  candidates <- map(subsets, function(preds) {
+
+      df_complete <- wide %>%
+        select(y, all_of(preds)) %>%
+        filter(if_all(everything(), ~ !is.na(.)))
+    
+      if (nrow(df_complete) < min_obs) return(NULL)
+    
+      f <- as.formula(paste0("y ~ ", paste(preds, collapse = " + ")))
+      fit <- tryCatch(lm(f, data = df_complete), error = function(e) NULL)
+      if (is.null(fit)) return(NULL)
+    
+      tibble(
+        predictors = list(preds),
+        adj_r2 = summary(fit)$adj.r.squared,
+        model = list(fit)
+      )
+    
+    }) %>%
+      compact() %>%
+      bind_rows()
+
+
+  best <- candidates %>% arrange(desc(adj_r2)) %>% slice(1)
+  best_fit <- best$model[[1]]
+  best_preds <- best$predictors[[1]]
+
+  preds <- predict(best_fit, newdata = wide)
+
+  out <- df_y %>%
+    mutate(!!var := if_else(is.na(.data[[var]]), preds, .data[[var]]))
 
   list(
-    imputed_long = df_comuna |>
-      select(-all_of(var)) |>
-      left_join(long_imp, by = c(date_col, countid_col)),
-    metadata = bind_rows(metadata)
+    data = out,
+    meta = tibble(
+      countid = cid,
+      var = var,
+      chosen_predictors = paste(best_preds, collapse = ", "),
+      adj_r2 = best$adj_r2,
+      note = "selected model"
+    )
   )
 }
 
-impute_hierarchical <- function(
-  df,
-  var,
-  metric = "r2adj",
-  verbose = TRUE
-) {
-  comuna_groups <- df |>
-    group_by(cod_comuna) |>
-    group_split()
+############################################################
+# Wrapper across all countids
+############################################################
+############################################################
+# Wrapper across all countids WITH PROGRESS INDICATOR
+############################################################
+############################################################
+# Wrapper across valid countids ONLY (with progress indicator)
+############################################################
+impute_by_neighbors <- function(df, neighbors, vars) {
 
-  results <- map(
-    comuna_groups,
-    function(g) {
-      impute_one_comuna(
-        df_comuna = g,
-        var = var,
-        metric = metric,
-        verbose = verbose
+  results <- list()
+  meta <- list()
+
+  # ---- restrict neighbors to countids present in df ----
+  valid_countids <- intersect(
+    unique(df$countid),
+    unique(neighbors$countid)
+  )
+
+  neighbors_valid <- neighbors %>%
+    filter(countid %in% valid_countids)
+
+  for (v in vars) {
+
+    message("Imputing variable: ", v)
+
+    neighbors_split <- split(neighbors_valid, neighbors_valid$countid)
+    n_total <- length(neighbors_split)
+
+    out_list <- vector("list", n_total)
+
+    for (i in seq_along(neighbors_split)) {
+
+      nrow <- neighbors_split[[i]]
+      cid <- nrow$countid
+
+      message(
+        sprintf(
+          "[%s] countid %d / %d (id = %s)",
+          v, i, n_total, cid
+        )
+      )
+
+      out_list[[i]] <- impute_one_countid(
+        df = df,
+        neighbors_row = nrow,
+        var = v
       )
     }
-  )
+
+    results[[v]] <- map_dfr(out_list, "data")
+    meta[[v]] <- map_dfr(out_list, "meta")
+  }
 
   list(
-    data = bind_rows(map(results, "imputed_long")),
-    metadata = bind_rows(map(results, "metadata"))
+    data = results[[vars[1]]],
+    metadata = bind_rows(meta)
   )
 }
 
-vars_to_impute <- c("max_valMP25")
 
-res <- impute_hierarchical(
-  df = df,
-  var = vars_to_impute,
-  metric = "r2adj",
-  verbose = TRUE
+
+############################################################
+# RUN
+############################################################
+
+vars_to_impute <- c(
+  "max_valMP10", "mean_valMP10", "median_valMP10"
 )
 
-df_imputed <- res$data |>
-  arrange(cod_comuna, panelid, countid, date)
+base_path <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate"
 
-meta <- res$metadata
+for (i in 2:20) {
+
+  message("Processing pollution_comuna_", i)
+
+  file_path <- file.path(
+    base_path,
+    paste0("pollution_comuna_", i, ".dta")
+  )
+
+  # ---- read ----
+  df <- read_dta(file_path) |>
+    rename(countid = Entidad)
+
+  # ---- impute ----
+  res <- impute_by_neighbors(
+    df = df,
+    neighbors = neighbors,
+    vars = vars_to_impute
+  )
+
+  df_imputed <- res$data
+  meta <- res$metadata
+
+  # ---- write back (overwrite) ----
+  write_dta(df_imputed, file_path)
+
+  # ---- optional: save metadata ----
+  write_dta(
+    meta,
+    file.path(
+      base_path,
+      paste0("pollution_comuna_", i, "_imputation_meta.dta")
+    )
+  )
+}
 
 

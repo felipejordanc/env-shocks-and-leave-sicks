@@ -245,20 +245,20 @@ estimates clear
 
 eststo model0p: reghdfe  y_dum medianMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 eststo model1p: reghdfe  y_dum medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model2p: reghdfe  y_dum medianMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model2p: reghdfe  y_dum medianMP10 medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
 
 eststo model3p: reghdfe  y_spn medianMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 eststo model4p: reghdfe  y_spn medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model5p: reghdfe  y_spn medianMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model5p: reghdfe  y_spn medianMP10 medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
 eststo model6p: reghdfe  y_re medianMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 eststo model7p: reghdfe  y_re medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model8p: reghdfe  y_re medianMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model8p: reghdfe  y_re medianMP10 medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
 eststo model9p: reghdfe  y_ant medianMP10, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 eststo model10p: reghdfe  y_ant medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
-eststo model12p: reghdfe  y_ant medianMP10 meanMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
+eststo model12p: reghdfe  y_ant medianMP10 medianMP25, absorb(date cod_comuna reg_month) vce(cluster cod_comuna)
 
 
 

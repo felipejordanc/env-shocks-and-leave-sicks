@@ -470,7 +470,7 @@ impute_panelwise <- function(
 
 # Suppose your dataset is df_raw with columns:
 # panelid (string), countid (integer), date (Date), and monitor vars m1..m10
-vars_to_impute <- c("max_valMP25", "max_valMP10", "max_valO3", "max_valNOX", "min_valMP25", "min_valMP10", "min_valO3", "min_valNOX", "mean_valMP25", "mean_valMP10", "mean_valO3", "mean_valNOX")
+vars_to_impute <- c("max_valMP25", "max_valMP10", "max_valO3", "max_valNOX", "min_valMP25", "min_valMP10", "min_valO3", "min_valNOX", "mean_valMP25", "mean_valMP10", "mean_valO3", "mean_valNOX", "median_valMP25", "median_valMP10","median_valNOX","median_valO3")
 
 res <- impute_panelwise(
   df = df,
