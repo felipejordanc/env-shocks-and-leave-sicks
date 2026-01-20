@@ -237,7 +237,7 @@ vars_to_impute <- c(
 
 base_path <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate"
 
-for (i in 2:20) {
+for (i in 7:20) {
 
   message("Processing pollution_comuna_", i)
 
@@ -260,10 +260,18 @@ for (i in 2:20) {
   df_imputed <- res$data
   meta <- res$metadata
 
+  # df no longer needed
+  rm(df)
+  gc(FALSE)
+
   # ---- write back (overwrite) ----
   write_dta(df_imputed, file_path)
 
-  # ---- optional: save metadata ----
+  # df_imputed no longer needed after write
+  rm(df_imputed)
+  gc(FALSE)
+
+  # ---- save metadata ----
   write_dta(
     meta,
     file.path(
@@ -271,6 +279,9 @@ for (i in 2:20) {
       paste0("pollution_comuna_", i, "_imputation_meta.dta")
     )
   )
-}
 
+  # clean up remaining large objects
+  rm(res, meta)
+  gc(FALSE)
+}
 
