@@ -212,9 +212,10 @@ bysort year: egen cutoff = pctile(obs_id_year), p(99)
 gen top1pct = obs_id_year >= cutoff
 gen delta = date - date2
 keep if delta <= 7 & delta >= -7
+gen resp = res_cod_capitulo_cie10 == "J00-J99"
 preserve
 duplicates drop benef_enciptado date, force // Cambiar a keep max
-keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta lic_cod_previsional res_categoria_cie10
+keep benef_enciptado date dias_otorgados cod_tipo_licencia top1pct delta lic_cod_previsional res_categoria_cie10 resp
 gen reactive = delta>=0
 label define deltal 1 "Reactive" 0 "Anticipated"
 label values reactive deltal

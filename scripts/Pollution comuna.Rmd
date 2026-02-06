@@ -232,12 +232,12 @@ impute_by_neighbors <- function(df, neighbors, vars) {
 ############################################################
 
 vars_to_impute <- c(
-  "max_valMP10", "mean_valMP10", "median_valMP10"
+  "mean_valMP10"
 )
 
 base_path <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate"
 
-for (i in 7:20) {
+for (i in 11:20) {
 
   message("Processing pollution_comuna_", i)
 
@@ -248,7 +248,7 @@ for (i in 7:20) {
 
   # ---- read ----
   df <- read_dta(file_path) |>
-    rename(countid = Entidad)
+    rename(countid = countid)
 
   # ---- impute ----
   res <- impute_by_neighbors(
@@ -284,4 +284,59 @@ for (i in 7:20) {
   rm(res, meta)
   gc(FALSE)
 }
+
+vars_to_impute <- c(
+  "mean_valMP25"
+)
+
+base_path <- "C:/Users/black/Documents/GitHub/env-shocks-and-leave-sicks/remote/data/B_intermediate"
+
+for (i in 11:20) {
+
+  message("Processing pollution_comuna_", i)
+
+  file_path <- file.path(
+    base_path,
+    paste0("pollution_comuna_", i, ".dta")
+  )
+
+  # ---- read ----
+  df <- read_dta(file_path) |>
+    rename(countid = countid)
+
+  # ---- impute ----
+  res <- impute_by_neighbors(
+    df = df,
+    neighbors = neighbors,
+    vars = vars_to_impute
+  )
+
+  df_imputed <- res$data
+  meta <- res$metadata
+
+  # df no longer needed
+  rm(df)
+  gc(FALSE)
+
+  # ---- write back (overwrite) ----
+  write_dta(df_imputed, file_path)
+
+  # df_imputed no longer needed after write
+  rm(df_imputed)
+  gc(FALSE)
+
+  # ---- save metadata ----
+  write_dta(
+    meta,
+    file.path(
+      base_path,
+      paste0("pollution_comuna_", i, "_imputation_meta.dta")
+    )
+  )
+
+  # clean up remaining large objects
+  rm(res, meta)
+  gc(FALSE)
+}
+
 

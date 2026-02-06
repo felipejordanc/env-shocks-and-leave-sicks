@@ -1,0 +1,20 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{4}{c}}
+\toprule
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}\\
+\midrule
+tmax\_mean   &      0.0048\sym{**} &      0.0038\sym{**} &      0.0025         &      0.0029\sym{***}\\
+            &     (0.002)         &     (0.001)         &     (0.002)         &     (0.001)         \\
+tmin\_mean   &      0.0056\sym{*}  &      0.0017         &      0.0074\sym{***}&     -0.0019         \\
+            &     (0.003)         &     (0.002)         &     (0.002)         &     (0.002)         \\
+c.tmax\_mean#c.tmin\_mean&      0.0007\sym{**} &      0.0005\sym{**} &      0.0007\sym{***}&     -0.0000         \\
+            &     (0.000)         &     (0.000)         &     (0.000)         &     (0.000)         \\
+Constant    &      0.9726\sym{***}&      0.5945\sym{***}&      0.7231\sym{***}&      0.3026\sym{***}\\
+            &     (0.004)         &     (0.003)         &     (0.004)         &     (0.002)         \\
+\midrule
+N           &    19815615         &    19815615         &    19821643         &    19818249         \\
+Mean        &                     &                     &                     &                     \\
+\bottomrule
+\end{tabular}
+}
