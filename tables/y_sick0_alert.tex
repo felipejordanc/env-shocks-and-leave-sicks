@@ -1,0 +1,18 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{6}{c}}
+\toprule
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Respiratory}&\multicolumn{1}{c}{Respiratory}\\
+\midrule
+alert       &    -0.03735         &    -0.02970         &    -0.02827         &    -0.02407         &    -0.03874         &    -0.02901         \\
+            &    (0.0832)         &    (0.0827)         &    (0.0500)         &    (0.0490)         &    (0.0490)         &    (0.0516)         \\
+tmin\_mean   &    -0.01171         &                     &    -0.00643         &                     &    -0.01490\sym{**} &                     \\
+            &    (0.0100)         &                     &    (0.0065)         &                     &    (0.0059)         &                     \\
+Constant    &     1.18295\sym{***}&     1.12909\sym{***}&     0.71525\sym{***}&     0.68570\sym{***}&     0.34705\sym{***}&     0.27852\sym{***}\\
+            &    (0.0593)         &    (0.0289)         &    (0.0385)         &    (0.0181)         &    (0.0341)         &    (0.0186)         \\
+\midrule
+N           &   2,490,014         &   2,490,014         &   2,490,014         &   2,490,014         &   2,490,200         &   2,490,200         \\
+max         &                     &                     &                     &                     &                     &                     \\
+\bottomrule
+\end{tabular}
+}

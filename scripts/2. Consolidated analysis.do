@@ -429,30 +429,67 @@ esttab model* using "${tables}/y_sick0_pol_tot_dum.tex",replace nonumber booktab
 *              Pollution           *
 ************************************
 use "$usedata/reg_w.dta", clear
-
 drop if year == 2020 | year == 2021
-xtset benef_enciptado date
 gen reg = floor(cod_comuna/1000)
 merge n:1 date reg using "$usedata/em_states.dta", keep(1 3) nogenerate
-eststo model1p: reghdfe  y_dum em_state, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_spn em_state, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_resp em_state, absorb(reg_month) vce(cluster cod_comuna)
+merge n:1 benef_enciptado date using "$usedata/tmin_dum.dta", keep(1 3) nogenerate keepusing(tmin_mean)
 
-eststo model1p: reghdfe  y_dum pre_emerg, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_spn pre_emerg, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_resp pre_emerg, absorb(reg_month) vce(cluster cod_comuna)
+gen month  = month(dofw(date))
+xtset benef_enciptado date
 
-eststo model1p: reghdfe  y_dum alert, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_spn alert, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_resp alert, absorb(reg_month) vce(cluster cod_comuna)
+foreach v in mean_state max_state pre_emerg alert{
+	estimates clear
+	local i = 1
+	foreach y in y_dum y_spn y_resp{
+		eststo model`=`i'*2-1'p: reghdfe `y' ///
+			`v' tmin_mean ///
+			, absorb(benef_enciptado month year) ///
+			  vce(cluster date)
+			  
+		eststo model`=`i'*2'p: reghdfe `y' ///
+			`v' ///
+			, absorb(benef_enciptado month year) ///
+			  vce(cluster date)
+		local ++i
+	}
+	esttab model* using "${tables}/y_sick0_`v'.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("Dummy" "Dummy" "Spain" "Spain" "Respiratory" "Respiratory") nonotes
+}
 
-eststo model1p: reghdfe  y_dum regular, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_spn regular, absorb(reg_month) vce(cluster cod_comuna)
-eststo model1p: reghdfe  y_resp regular, absorb(reg_month) vce(cluster cod_comuna)
+estimates clear
+local i = 1
+foreach y in y_dum y_spn y_resp{
+	eststo model`=`i'*2-1'p: reghdfe `y' ///
+		alert pre_emerg tmin_mean ///
+		, absorb(benef_enciptado month year) ///
+		  vce(cluster date)
+		  
+	eststo model`=`i'*2'p: reghdfe `y' ///
+		alert pre_emerg ///
+		, absorb(benef_enciptado month year) ///
+		  vce(cluster date)
+	local ++i
+}
+esttab model* using "${tables}/y_sick0_both.tex",replace nonumber booktabs collabels(none) star(* 0.10 ** 0.05 *** 0.01) varlabels(_cons "Constant") nogaps b(%9.5f) se(%9.4f) stats(N max,fmt("%9.0fc" "%9.4fc")) mtitles("Dummy" "Dummy" "Spain" "Spain" "Respiratory" "Respiratory") nonotes
 
-logit y_dum pre_emerg
-probit y_dum pre_emerg
-logit y_spn pre_emerg
-probit y_spn pre_emerg
-logit y_resp pre_emerg
-probit y_resp pre_emerg
+xtset benef_enciptado date
+
+
+
+forvalues k = 0/3 {
+    gen alerta_l`k' = L`k'.alert
+}
+
+reghdfe y_resp ///
+    alerta_l0 alerta_l1 alerta_l2 alerta_l3 ///
+    , absorb(benef_enciptado month year) ///
+      vce(cluster date)
+lincom alerta_l0 + alerta_l1 + alerta_l2 + alerta_l3
+
+************************************
+*              Pollution           *
+************************************
+use "$usedata/reg_w.dta", clear
+drop if year == 2020 | year == 2021
+gen reg = floor(cod_comuna/1000)
+merge n:1 date reg using "$usedata/em_states.dta", keep(1 3) nogenerate
+merge n:1 benef_enciptado date using "$usedata/tmin_dum.dta", keep(1 3) nogenerate keepusing(tmin_mean)
