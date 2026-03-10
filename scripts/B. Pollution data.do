@@ -497,8 +497,67 @@ drop year suma
 save "$usedata/em_states.dta", replace
 
 ************************************************
-*       1. Emergency states                       *
+*       1. Pollution reg db               *
 ************************************************
+
+use "$usedata/pollution_input.dta", clear
+drop if cod_comuna >13000 & cod_comuna < 14000
+save "$usedata/pollution_input3.dta", replace
+
+
+clear all
+set obs 1
+gen date = mdy(1,1,2018)
+format date %td
+gen enddate = mdy(12,31,2024)
+format enddate %td
+expand enddate - date + 1
+replace date = date[1] + _n +-1
+drop enddate
+tempfile dates
+save `dates'
+
+use "$usedata/sample_id.dta", clear
+set seed 12345
+*sample 80
+cross using `dates'
+sort benef_enciptado date
+compress
+gen year = year(date)
+merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
+foreach m in MP10 MP25 NOX O3{
+	preserve
+	merge n:1 cod_comuna date using "$usedata/pollution_input3.dta", keep(1 3) nogenerate keepusing(mean`m' maxMP25 maxMP10 maxNOX maxO3  median`m')
+	gen week = wofd(date)
+	format week %tw
+	drop id_all year cod_comuna
+	compress
+	gen mean`m'_max = mean`m'
+	gen max`m'_mean = max`m'
+	gen MP10ex_max = maxMP10 >130 if maxMP10 != .
+	gen MP25ex_max = maxMP25 >50 if maxMP25 != .
+	gen NOXex_max = maxNOX >100 if maxNOX != .
+	gen O3ex_max = maxO3 >120 if maxO3 != .
+	gen suma = 1
+	gen median`m'_max = median`m'
+	collapse (max) median`m'_max mean`m'_max max`m' (sum) suma  `m'ex_max  (mean) max`m'_mean  mean`m'  median`m' , by(benef_enciptado week)
+
+	compress
+	rename week date
+	replace `m'ex_max = `m'ex_max/suma
+	drop suma
+	tempfile e_`m'
+	save `e_`m''
+	restore
+}
+use `e_MP10', clear
+merge 1:1 benef_enciptado date using `e_MP25', nogenerate 
+merge 1:1 benef_enciptado date using `e_NOX', nogenerate 
+merge 1:1 benef_enciptado date using `e_O3', nogenerate 
+foreach m in MP10 MP25 NOX O3{
+	replace `m'ex_max = . if max`m' == .
+}
+save "$usedata/pollution_merge3.dta", replace
 
 
 

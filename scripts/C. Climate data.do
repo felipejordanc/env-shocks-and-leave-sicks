@@ -222,3 +222,82 @@ collapse (sum) tmin_dum* suma , by(tmax_3rd)
 forvalues i=0/9{
 	format tmin_dum_`=`i'*2'_`=`i'*2+1' %12.0f
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+clear all
+set obs 1
+gen date = mdy(1,1,2018)
+format date %td
+gen enddate = mdy(12,31,2024)
+format enddate %td
+expand enddate - date + 1
+replace date = date[1] + _n +-1
+drop enddate
+tempfile dates
+save `dates'
+
+use "$usedata/benef_temp.dta", clear
+foreach n in 1 2 3{
+	preserve
+	keep if comtype == `n'
+	cross using `dates'
+	sort benef_enciptado date
+	compress
+	gen year = year(date)
+	merge n:1 benef_enciptado year using "$usedata/id_com.dta", keep(1 3) nogenerate
+	merge n:1 cod_comuna date using "$usedata/tmax_w.dta", keep(1 3) nogenerate
+	gen week = wofd(date)
+	format week %tw
+	compress
+
+	gen tmax_dum_9 = tmax <10
+	gen tmax_dum_34 = tmax >33 & tmax != .
+	gen tmax_mean = tmax
+
+	forvalues i=5/16{
+		gen tmax_dum_`=`i'*2'_`=`i'*2+1' = 0
+		replace tmax_dum_`=`i'*2'_`=`i'*2+1' = 1 if tmax == `i'*2 | tmax == `i'*2 + 1
+	}
+	gen suma = 1
+	compress
+	collapse (sum) tmax_dum* suma (max) tmax (mean) tmax_mean, by(benef_enciptado week)
+	forvalues i=5/16{
+		replace tmax_dum_`=`i'*2'_`=`i'*2+1' = tmax_dum_`=`i'*2'_`=`i'*2+1'/suma
+	}
+	drop tmax_dum_20_21
+	replace tmax_dum_9 = tmax_dum_9/ suma
+	replace tmax_dum_34 = tmax_dum_34/suma
+	compress
+	rename week date
+	tempfile b_`n'
+	save `b_`n''
+	restore
+}
+
+use `b_1'
+append using `b_2'
+append using `b_3'
+drop suma 
+save "$usedata/tmax_dum2.dta", replace
+
+
+
+
+

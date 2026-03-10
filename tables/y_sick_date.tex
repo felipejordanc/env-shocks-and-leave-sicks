@@ -1,0 +1,18 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{3}{c}}
+\toprule
+            &\multicolumn{1}{c}{Dummy}&\multicolumn{1}{c}{Spain}&\multicolumn{1}{c}{Respiratory}\\
+\midrule
+meanMP10    &    -0.00078\sym{*}  &    -0.00049         &     0.00011         \\
+            &    (0.0004)         &    (0.0003)         &    (0.0002)         \\
+tmax\_mean   &     0.00855\sym{**} &     0.00465\sym{**} &    -0.00272\sym{*}  \\
+            &    (0.0037)         &    (0.0022)         &    (0.0015)         \\
+Constant    &     0.87288\sym{***}&     0.54537\sym{***}&     0.22174\sym{***}\\
+            &    (0.0743)         &    (0.0404)         &    (0.0306)         \\
+\midrule
+N           &    11784185         &    11784185         &    11784721         \\
+max         &                     &                     &                     \\
+\bottomrule
+\end{tabular}
+}

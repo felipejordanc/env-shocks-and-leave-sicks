@@ -315,7 +315,50 @@ save "$usedata/3rds_graph_com.dta", replace
 ************************************************
 *       1. Random sample                       *
 ************************************************
-import delimited "$rawdata\hospitalization\Export  públicos 2018_enc.txt", varnames(1) clear
+foreach y in 2018 2019 2020{
+	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1) 
+	keep benef_enciptado cod_comuna_pernat 
+	gen year = `y'
+	tempfile b_`y'
+	save `b_`y''
+}
+
+
+foreach y in 2022 2023 2024{
+	import delimited "$rawdata/population/Base Beneficiarios/Data Poblacion `y'.csv", clear varnames(1) 
+	rename código_beneficiario benef_enciptado
+	keep benef_enciptado comuna_beneficiario
+	merge n:1 comuna_beneficiario using "C:\Users\black\Dropbox\GSL\Bases intermedias\codigo_comunas.dta", update nogenerate keep(3)
+	gen year = `y'
+	tempfile b_`y'
+	save `b_`y''
+}
+import delimited "$rawdata/population/Benef_FNS_2021\Benef_FNS_2021.txt", clear varnames(1)
+rename id_asegurado benef_enciptado
+merge n:1 comuna using "C:\Users\black\Dropbox\codigo_comunas.dta", update nogenerate keep(3)
+keep benef_enciptado cod_comuna_pernat
+tempfile b_2021
+save `b_2021'
+
+use `b_2018'
+foreach y in 2019 2020 2021 2022 2023 2024{
+	append using `b_`y''
+}
+drop comuna_beneficiario
+replace year = 2021 if year == .
+rename cod_comuna_pernat cod_comuna
+merge n:1 cod_comuna using "$usedata/3rds_graph_com.dta", nogenerate
+keep benef_enciptado tmax_3rd year
+reshape wide tmax_3rd, i(benef_enciptado) j(year)
+egen row_min = rowmin(tmax_3rd2018-tmax_3rd2024)
+egen row_max = rowmax(tmax_3rd2018-tmax_3rd2024)
+egen n_nonmiss = rownonmiss(tmax_3rd2018-tmax_3rd2024)
+
+gen comtype = row_min if row_min == row_max & n_nonmiss == 7
+drop row_min row_max tmax* n_nonmiss
+drop if comtype == .
+sample 100000, count by(comtype)
+save "$usedata/benef_temp.dta", replace
 
 
 

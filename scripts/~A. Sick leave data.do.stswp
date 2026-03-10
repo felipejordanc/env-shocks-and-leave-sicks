@@ -312,10 +312,7 @@ duplicates drop cod_comuna, force
 save "$usedata/3rds_graph_com.dta", replace
 
 
-************************************************
-*       1. Random sample                       *
-************************************************
-import delimited "$rawdata\hospitalization\Export  públicos 2018_enc.txt", varnames(1) clear
+
 
 
 
